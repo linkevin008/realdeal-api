@@ -1,0 +1,13 @@
+# Binaries
+/bin/
+*.exe
+
+# Environment (never commit real credentials)
+.env
+
+# Go workspace
+go.work
+go.work.sum
+
+# OS
+.DS_Store
