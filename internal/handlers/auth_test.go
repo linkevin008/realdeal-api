@@ -1,0 +1,323 @@
+package handlers_test
+
+import (
+	"bytes"
+	"database/sql/driver"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/kevinlin/realdeal-api/internal/config"
+	"github.com/kevinlin/realdeal-api/internal/handlers"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/bcrypt"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+)
+
+func init() {
+	gin.SetMode(gin.TestMode)
+}
+
+const jwtTestSecret = "test-secret-key-auth"
+
+func testAuthConfig() *config.Config {
+	return &config.Config{
+		JWTSecret: jwtTestSecret,
+	}
+}
+
+func newTestDB(t *testing.T) (*gorm.DB, sqlmock.Sqlmock) {
+	t.Helper()
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+
+	gormDB, err := gorm.Open(postgres.New(postgres.Config{Conn: db}), &gorm.Config{})
+	require.NoError(t, err)
+
+	return gormDB, mock
+}
+
+func generateToken(userID string, tokenType string, secret string, expiry time.Duration) string {
+	claims := jwt.MapClaims{
+		"sub":  userID,
+		"type": tokenType,
+		"exp":  time.Now().Add(expiry).Unix(),
+		"iat":  time.Now().Unix(),
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	signed, _ := token.SignedString([]byte(secret))
+	return signed
+}
+
+func postJSON(router *gin.Engine, path string, body interface{}) *httptest.ResponseRecorder {
+	b, _ := json.Marshal(body)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPost, path, bytes.NewBuffer(b))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+	return w
+}
+
+// userRowValues returns the columns and values for a user row.
+func userColumns() []string {
+	return []string{
+		"id", "name", "email", "password_hash", "phone_number", "profile_photo_url",
+		"role", "show_email", "show_phone", "show_listings", "created_at", "updated_at",
+	}
+}
+
+func userRowValues(id, name, email, hash string) []driver.Value {
+	now := time.Now()
+	return []driver.Value{id, name, email, hash, nil, nil, "buyer", true, true, true, now, now}
+}
+
+// ----- Signup tests -----
+
+func TestSignup_Success(t *testing.T) {
+	gormDB, mock := newTestDB(t)
+	cfg := testAuthConfig()
+	h := handlers.NewAuthHandler(gormDB, cfg)
+
+	r := gin.New()
+	r.POST("/signup", h.Signup)
+
+	// First query: check email exists → return no rows
+	mock.ExpectQuery(`SELECT .* FROM "users"`).
+		WithArgs("test@example.com", 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+
+	// Insert new user
+	mock.ExpectBegin()
+	mock.ExpectQuery(`INSERT INTO "users"`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).
+			AddRow("uuid-1", time.Now(), time.Now()))
+	mock.ExpectCommit()
+
+	w := postJSON(r, "/signup", map[string]interface{}{
+		"name":     "Alice",
+		"email":    "test@example.com",
+		"password": "password123",
+	})
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	data := resp["data"].(map[string]interface{})
+	assert.NotEmpty(t, data["access_token"])
+	assert.NotEmpty(t, data["refresh_token"])
+}
+
+func TestSignup_MissingEmail(t *testing.T) {
+	gormDB, _ := newTestDB(t)
+	h := handlers.NewAuthHandler(gormDB, testAuthConfig())
+
+	r := gin.New()
+	r.POST("/signup", h.Signup)
+
+	w := postJSON(r, "/signup", map[string]interface{}{
+		"name":     "Alice",
+		"password": "password123",
+	})
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestSignup_MissingPassword(t *testing.T) {
+	gormDB, _ := newTestDB(t)
+	h := handlers.NewAuthHandler(gormDB, testAuthConfig())
+
+	r := gin.New()
+	r.POST("/signup", h.Signup)
+
+	w := postJSON(r, "/signup", map[string]interface{}{
+		"name":  "Alice",
+		"email": "test@example.com",
+	})
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestSignup_MissingName(t *testing.T) {
+	gormDB, _ := newTestDB(t)
+	h := handlers.NewAuthHandler(gormDB, testAuthConfig())
+
+	r := gin.New()
+	r.POST("/signup", h.Signup)
+
+	w := postJSON(r, "/signup", map[string]interface{}{
+		"email":    "test@example.com",
+		"password": "password123",
+	})
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestSignup_DuplicateEmail(t *testing.T) {
+	gormDB, mock := newTestDB(t)
+	cfg := testAuthConfig()
+	h := handlers.NewAuthHandler(gormDB, cfg)
+
+	r := gin.New()
+	r.POST("/signup", h.Signup)
+
+	// Email exists → return a row
+	mock.ExpectQuery(`SELECT .* FROM "users"`).
+		WithArgs("dupe@example.com", 1).
+		WillReturnRows(sqlmock.NewRows(userColumns()).
+			AddRow(userRowValues("existing-id", "Existing", "dupe@example.com", "hash")...))
+
+	w := postJSON(r, "/signup", map[string]interface{}{
+		"name":     "Bob",
+		"email":    "dupe@example.com",
+		"password": "password123",
+	})
+
+	assert.Equal(t, http.StatusConflict, w.Code)
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "EMAIL_TAKEN", resp["code"])
+}
+
+// ----- Signin tests -----
+
+func TestSignin_Success(t *testing.T) {
+	gormDB, mock := newTestDB(t)
+	cfg := testAuthConfig()
+	h := handlers.NewAuthHandler(gormDB, cfg)
+
+	r := gin.New()
+	r.POST("/signin", h.Signin)
+
+	hash, _ := bcrypt.GenerateFromPassword([]byte("correctpass"), bcrypt.MinCost)
+	mock.ExpectQuery(`SELECT .* FROM "users"`).
+		WithArgs("user@example.com", 1).
+		WillReturnRows(sqlmock.NewRows(userColumns()).
+			AddRow(userRowValues("user-id-1", "User", "user@example.com", string(hash))...))
+
+	w := postJSON(r, "/signin", map[string]interface{}{
+		"email":    "user@example.com",
+		"password": "correctpass",
+	})
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	data := resp["data"].(map[string]interface{})
+	assert.NotEmpty(t, data["access_token"])
+	assert.NotEmpty(t, data["refresh_token"])
+}
+
+func TestSignin_WrongPassword(t *testing.T) {
+	gormDB, mock := newTestDB(t)
+	cfg := testAuthConfig()
+	h := handlers.NewAuthHandler(gormDB, cfg)
+
+	r := gin.New()
+	r.POST("/signin", h.Signin)
+
+	hash, _ := bcrypt.GenerateFromPassword([]byte("correctpass"), bcrypt.MinCost)
+	mock.ExpectQuery(`SELECT .* FROM "users"`).
+		WithArgs("user@example.com", 1).
+		WillReturnRows(sqlmock.NewRows(userColumns()).
+			AddRow(userRowValues("user-id-1", "User", "user@example.com", string(hash))...))
+
+	w := postJSON(r, "/signin", map[string]interface{}{
+		"email":    "user@example.com",
+		"password": "wrongpass",
+	})
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "INVALID_CREDENTIALS", resp["code"])
+}
+
+func TestSignin_UserNotFound(t *testing.T) {
+	gormDB, mock := newTestDB(t)
+	cfg := testAuthConfig()
+	h := handlers.NewAuthHandler(gormDB, cfg)
+
+	r := gin.New()
+	r.POST("/signin", h.Signin)
+
+	mock.ExpectQuery(`SELECT .* FROM "users"`).
+		WithArgs("nobody@example.com", 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+
+	w := postJSON(r, "/signin", map[string]interface{}{
+		"email":    "nobody@example.com",
+		"password": "anypass",
+	})
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "INVALID_CREDENTIALS", resp["code"])
+}
+
+// ----- Refresh tests -----
+
+func TestRefreshToken_Success(t *testing.T) {
+	gormDB, _ := newTestDB(t)
+	cfg := testAuthConfig()
+	h := handlers.NewAuthHandler(gormDB, cfg)
+
+	r := gin.New()
+	r.POST("/refresh", h.Refresh)
+
+	refreshToken := generateToken("user-abc", "refresh", jwtTestSecret, 7*24*time.Hour)
+
+	w := postJSON(r, "/refresh", map[string]interface{}{
+		"refresh_token": refreshToken,
+	})
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	data := resp["data"].(map[string]interface{})
+	assert.NotEmpty(t, data["access_token"])
+	assert.NotEmpty(t, data["refresh_token"])
+}
+
+func TestRefreshToken_InvalidToken(t *testing.T) {
+	gormDB, _ := newTestDB(t)
+	cfg := testAuthConfig()
+	h := handlers.NewAuthHandler(gormDB, cfg)
+
+	r := gin.New()
+	r.POST("/refresh", h.Refresh)
+
+	w := postJSON(r, "/refresh", map[string]interface{}{
+		"refresh_token": "this.is.not.a.valid.token",
+	})
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestRefreshToken_WrongTokenType(t *testing.T) {
+	gormDB, _ := newTestDB(t)
+	cfg := testAuthConfig()
+	h := handlers.NewAuthHandler(gormDB, cfg)
+
+	r := gin.New()
+	r.POST("/refresh", h.Refresh)
+
+	// Use an access token instead of refresh token
+	accessToken := generateToken("user-abc", "access", jwtTestSecret, 15*time.Minute)
+
+	w := postJSON(r, "/refresh", map[string]interface{}{
+		"refresh_token": accessToken,
+	})
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "UNAUTHORIZED", resp["code"])
+}
