@@ -26,6 +26,19 @@ type updateUserRequest struct {
 	ShowListings    *bool            `json:"show_listings"`
 }
 
+// GET /api/v1/users/me
+func (h *UserHandler) GetMe(c *gin.Context) {
+	callerID, _ := c.Get("userID")
+
+	var user models.User
+	if err := h.db.First(&user, "id = ?", callerID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "user not found", "code": "NOT_FOUND"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": user, "message": "user retrieved successfully"})
+}
+
 // GET /api/v1/users/:id
 func (h *UserHandler) GetUser(c *gin.Context) {
 	id := c.Param("id")

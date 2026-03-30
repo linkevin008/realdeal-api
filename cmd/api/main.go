@@ -67,6 +67,7 @@ func main() {
 	// User routes
 	users := v1.Group("/users")
 	{
+		users.GET("/me", authMW, userHandler.GetMe)
 		users.GET("/:id", userHandler.GetUser)
 		users.PUT("/:id", authMW, userHandler.UpdateUser)
 		users.DELETE("/:id", authMW, userHandler.DeleteUser)
