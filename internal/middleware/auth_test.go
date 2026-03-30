@@ -128,3 +128,27 @@ func TestAuthMiddleware_Rejections(t *testing.T) {
 		})
 	}
 }
+
+func TestAuthMiddleware_EmptySubject(t *testing.T) {
+	cfg := testConfig()
+	claims := jwt.MapClaims{
+		"sub":  "",
+		"type": "access",
+		"exp":  time.Now().Add(15 * time.Minute).Unix(),
+		"iat":  time.Now().Unix(),
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	signed, _ := token.SignedString([]byte(testSecret))
+
+	w := httptest.NewRecorder()
+	r := gin.New()
+	r.GET("/test", middleware.AuthMiddleware(cfg), func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	req, _ := http.NewRequest(http.MethodGet, "/test", nil)
+	req.Header.Set("Authorization", "Bearer "+signed)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
