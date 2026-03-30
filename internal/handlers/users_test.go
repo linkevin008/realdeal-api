@@ -178,3 +178,140 @@ func TestDeleteUser_Forbidden(t *testing.T) {
 
 	assert.Equal(t, http.StatusForbidden, w.Code)
 }
+
+func TestDeleteUser_NotFound(t *testing.T) {
+	gormDB, mock := newTestDB(t)
+	h := handlers.NewUserHandler(gormDB)
+	r := setupUserRouter(h, "user-1")
+
+	mock.ExpectQuery(`SELECT .* FROM "users"`).
+		WithArgs("user-1", 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodDelete, "/users/user-1", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestUpdateUser_AllFields(t *testing.T) {
+	gormDB, mock := newTestDB(t)
+	h := handlers.NewUserHandler(gormDB)
+	r := setupUserRouter(h, "user-1")
+
+	mock.ExpectQuery(`SELECT .* FROM "users"`).
+		WithArgs("user-1", 1).
+		WillReturnRows(sqlmock.NewRows(userColumns()).
+			AddRow(userRowValues("user-1", "Alice", "alice@example.com", "hash")...))
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`UPDATE "users"`).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	mock.ExpectQuery(`SELECT .* FROM "users"`).
+		WithArgs("user-1", 1).
+		WillReturnRows(sqlmock.NewRows(userColumns()).
+			AddRow(userRowValues("user-1", "Alice Updated", "alice@example.com", "hash")...))
+
+	phone := "+1-555-0100"
+	photo := "https://example.com/photo.jpg"
+	showEmail := false
+	showPhone := false
+	showListings := true
+
+	w := httptest.NewRecorder()
+	body, _ := json.Marshal(map[string]interface{}{
+		"name":              "Alice Updated",
+		"phone_number":      phone,
+		"profile_photo_url": photo,
+		"show_email":        showEmail,
+		"show_phone":        showPhone,
+		"show_listings":     showListings,
+	})
+	req, _ := http.NewRequest(http.MethodPut, "/users/user-1", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestUpdateUser_BadJSON(t *testing.T) {
+	gormDB, _ := newTestDB(t)
+	h := handlers.NewUserHandler(gormDB)
+	r := setupUserRouter(h, "user-1")
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPut, "/users/user-1", bytes.NewBufferString("not-json"))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestUpdateUser_NotFound(t *testing.T) {
+	gormDB, mock := newTestDB(t)
+	h := handlers.NewUserHandler(gormDB)
+	r := setupUserRouter(h, "user-1")
+
+	mock.ExpectQuery(`SELECT .* FROM "users"`).
+		WithArgs("user-1", 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+
+	w := httptest.NewRecorder()
+	body, _ := json.Marshal(map[string]interface{}{"name": "Ghost"})
+	req, _ := http.NewRequest(http.MethodPut, "/users/user-1", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// ----- GetMe tests -----
+
+func setupMeRouter(h *handlers.UserHandler, callerID string) *gin.Engine {
+	r := gin.New()
+	r.GET("/users/me", func(c *gin.Context) {
+		c.Set("userID", callerID)
+		h.GetMe(c)
+	})
+	return r
+}
+
+func TestGetMe_Success(t *testing.T) {
+	gormDB, mock := newTestDB(t)
+	h := handlers.NewUserHandler(gormDB)
+	r := setupMeRouter(h, "user-1")
+
+	mock.ExpectQuery(`SELECT .* FROM "users"`).
+		WithArgs("user-1", 1).
+		WillReturnRows(sqlmock.NewRows(userColumns()).
+			AddRow(userRowValues("user-1", "Alice", "alice@example.com", "hash")...))
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/users/me", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	data := resp["data"].(map[string]interface{})
+	assert.Equal(t, "alice@example.com", data["email"])
+}
+
+func TestGetMe_NotFound(t *testing.T) {
+	gormDB, mock := newTestDB(t)
+	h := handlers.NewUserHandler(gormDB)
+	r := setupMeRouter(h, "ghost-user")
+
+	mock.ExpectQuery(`SELECT .* FROM "users"`).
+		WithArgs("ghost-user", 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/users/me", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}

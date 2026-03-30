@@ -181,3 +181,75 @@ func TestRemoveFavorite_NotFound(t *testing.T) {
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
+
+func TestRemoveFavorite_Forbidden(t *testing.T) {
+	gormDB, _ := newTestDB(t)
+	h := handlers.NewFavoriteHandler(gormDB)
+	r := setupFavoriteRouter(h, "other-user")
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodDelete, "/users/user-1/favorites/prop-1", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestAddFavorite_Forbidden(t *testing.T) {
+	gormDB, _ := newTestDB(t)
+	h := handlers.NewFavoriteHandler(gormDB)
+	r := setupFavoriteRouter(h, "other-user")
+
+	body, _ := json.Marshal(map[string]interface{}{"property_id": "prop-1"})
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPost, "/users/user-1/favorites", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestAddFavorite_PropertyNotFound(t *testing.T) {
+	gormDB, mock := newTestDB(t)
+	h := handlers.NewFavoriteHandler(gormDB)
+	r := setupFavoriteRouter(h, "user-1")
+
+	mock.ExpectQuery(`SELECT .* FROM "properties"`).
+		WithArgs("no-such-prop", 1).
+		WillReturnRows(sqlmock.NewRows(propertyColumns()))
+
+	body, _ := json.Marshal(map[string]interface{}{"property_id": "no-such-prop"})
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPost, "/users/user-1/favorites", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestAddFavorite_BadJSON(t *testing.T) {
+	gormDB, _ := newTestDB(t)
+	h := handlers.NewFavoriteHandler(gormDB)
+	r := setupFavoriteRouter(h, "user-1")
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPost, "/users/user-1/favorites", bytes.NewBufferString("not-json"))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestListFavorites_DBError(t *testing.T) {
+	gormDB, mock := newTestDB(t)
+	h := handlers.NewFavoriteHandler(gormDB)
+	r := setupFavoriteRouter(h, "user-1")
+
+	mock.ExpectQuery(`SELECT .* FROM "favorites"`).
+		WillReturnError(fmt.Errorf("connection refused"))
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/users/user-1/favorites", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
