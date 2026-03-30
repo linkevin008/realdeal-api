@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql/driver"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -445,6 +446,29 @@ func TestDeleteProperty_NotFound(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestDeleteProperty_DBError(t *testing.T) {
+	gormDB, mock := newTestDB(t)
+	h := handlers.NewPropertyHandler(gormDB)
+	sellerID := "seller-1"
+	r := setupPropertyRouter(h, sellerID)
+
+	mock.ExpectQuery(`SELECT .* FROM "properties"`).
+		WithArgs("prop-1", 1).
+		WillReturnRows(sqlmock.NewRows(propertyColumns()).
+			AddRow(propertyRow("prop-1", sellerID)...))
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`UPDATE "properties"`).
+		WillReturnError(fmt.Errorf("db error"))
+	mock.ExpectRollback()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodDelete, "/properties/prop-1", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
 // Covers the remaining optional field assignments: street, state, country, zip_code,

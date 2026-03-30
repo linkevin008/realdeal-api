@@ -45,6 +45,7 @@ func main() {
 
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(db, cfg)
+	socialAuthHandler := handlers.NewSocialAuthHandler(db, cfg)
 	userHandler := handlers.NewUserHandler(db)
 	propertyHandler := handlers.NewPropertyHandler(db)
 	favoriteHandler := handlers.NewFavoriteHandler(db)
@@ -60,6 +61,8 @@ func main() {
 	{
 		auth.POST("/signup", authHandler.Signup)
 		auth.POST("/signin", authHandler.Signin)
+		auth.POST("/signin/apple", socialAuthHandler.SignInWithApple)
+		auth.POST("/signin/google", socialAuthHandler.SignInWithGoogle)
 		auth.POST("/refresh", authHandler.Refresh)
 		auth.POST("/signout", authMW, authHandler.Signout)
 	}

@@ -44,7 +44,7 @@ type authResponse struct {
 	User         *models.User `json:"user,omitempty"`
 }
 
-func (h *AuthHandler) generateTokens(userID string) (accessToken, refreshToken string, expiresAt time.Time, err error) {
+func generateTokens(secret, userID string) (accessToken, refreshToken string, expiresAt time.Time, err error) {
 	expiresAt = time.Now().Add(15 * time.Minute)
 
 	accessClaims := jwt.MapClaims{
@@ -54,7 +54,7 @@ func (h *AuthHandler) generateTokens(userID string) (accessToken, refreshToken s
 		"type": "access",
 	}
 	at := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims)
-	accessToken, err = at.SignedString([]byte(h.cfg.JWTSecret))
+	accessToken, err = at.SignedString([]byte(secret))
 	if err != nil {
 		return
 	}
@@ -67,8 +67,12 @@ func (h *AuthHandler) generateTokens(userID string) (accessToken, refreshToken s
 		"type": "refresh",
 	}
 	rt := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims)
-	refreshToken, err = rt.SignedString([]byte(h.cfg.JWTSecret))
+	refreshToken, err = rt.SignedString([]byte(secret))
 	return
+}
+
+func (h *AuthHandler) generateTokens(userID string) (string, string, time.Time, error) {
+	return generateTokens(h.cfg.JWTSecret, userID)
 }
 
 // POST /api/v1/auth/signup

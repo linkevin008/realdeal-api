@@ -195,6 +195,28 @@ func TestDeleteUser_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
+func TestDeleteUser_DBError(t *testing.T) {
+	gormDB, mock := newTestDB(t)
+	h := handlers.NewUserHandler(gormDB)
+	r := setupUserRouter(h, "user-1")
+
+	mock.ExpectQuery(`SELECT .* FROM "users"`).
+		WithArgs("user-1", 1).
+		WillReturnRows(sqlmock.NewRows(userColumns()).
+			AddRow(userRowValues("user-1", "Alice", "alice@example.com", "hash")...))
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`DELETE FROM "users"`).
+		WillReturnError(fmt.Errorf("db error"))
+	mock.ExpectRollback()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodDelete, "/users/user-1", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
 func TestUpdateUser_AllFields(t *testing.T) {
 	gormDB, mock := newTestDB(t)
 	h := handlers.NewUserHandler(gormDB)

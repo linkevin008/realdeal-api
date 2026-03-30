@@ -15,6 +15,8 @@ type User struct {
 	Name            string    `json:"name" gorm:"not null"`
 	Email           string    `json:"email" gorm:"uniqueIndex;not null"`
 	PasswordHash    string    `json:"-" gorm:"not null"`
+	AppleID         *string   `json:"-" gorm:"uniqueIndex"`
+	GoogleID        *string   `json:"-" gorm:"uniqueIndex"`
 	PhoneNumber     *string   `json:"phone_number"`
 	ProfilePhotoURL *string   `json:"profile_photo_url"`
 	Role            UserRole  `json:"role" gorm:"not null;default:'buyer'"`
