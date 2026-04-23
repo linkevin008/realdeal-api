@@ -11,6 +11,7 @@ import (
 )
 
 func TestHealth_Healthy(t *testing.T) {
+	t.Parallel()
 	gormDB, _ := newTestDB(t)
 	h := handlers.NewHealthHandler(gormDB)
 

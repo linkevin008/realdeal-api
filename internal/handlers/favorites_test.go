@@ -38,6 +38,7 @@ func favoriteColumns() []string {
 }
 
 func TestListFavorites_Success(t *testing.T) {
+	t.Parallel()
 	gormDB, mock := newTestDB(t)
 	h := handlers.NewFavoriteHandler(gormDB)
 	r := setupFavoriteRouter(h, "user-1")
@@ -66,6 +67,7 @@ func TestListFavorites_Success(t *testing.T) {
 }
 
 func TestListFavorites_Forbidden(t *testing.T) {
+	t.Parallel()
 	gormDB, _ := newTestDB(t)
 	h := handlers.NewFavoriteHandler(gormDB)
 	// callerID is different from the user whose favorites are requested
@@ -79,6 +81,7 @@ func TestListFavorites_Forbidden(t *testing.T) {
 }
 
 func TestAddFavorite_Success(t *testing.T) {
+	t.Parallel()
 	gormDB, mock := newTestDB(t)
 	h := handlers.NewFavoriteHandler(gormDB)
 	r := setupFavoriteRouter(h, "user-1")
@@ -121,6 +124,7 @@ func TestAddFavorite_Success(t *testing.T) {
 }
 
 func TestAddFavorite_Duplicate(t *testing.T) {
+	t.Parallel()
 	gormDB, mock := newTestDB(t)
 	h := handlers.NewFavoriteHandler(gormDB)
 	r := setupFavoriteRouter(h, "user-1")
@@ -149,6 +153,7 @@ func TestAddFavorite_Duplicate(t *testing.T) {
 }
 
 func TestRemoveFavorite_Success(t *testing.T) {
+	t.Parallel()
 	gormDB, mock := newTestDB(t)
 	h := handlers.NewFavoriteHandler(gormDB)
 	r := setupFavoriteRouter(h, "user-1")
@@ -166,6 +171,7 @@ func TestRemoveFavorite_Success(t *testing.T) {
 }
 
 func TestRemoveFavorite_NotFound(t *testing.T) {
+	t.Parallel()
 	gormDB, mock := newTestDB(t)
 	h := handlers.NewFavoriteHandler(gormDB)
 	r := setupFavoriteRouter(h, "user-1")
@@ -183,6 +189,7 @@ func TestRemoveFavorite_NotFound(t *testing.T) {
 }
 
 func TestRemoveFavorite_Forbidden(t *testing.T) {
+	t.Parallel()
 	gormDB, _ := newTestDB(t)
 	h := handlers.NewFavoriteHandler(gormDB)
 	r := setupFavoriteRouter(h, "other-user")
@@ -195,6 +202,7 @@ func TestRemoveFavorite_Forbidden(t *testing.T) {
 }
 
 func TestAddFavorite_Forbidden(t *testing.T) {
+	t.Parallel()
 	gormDB, _ := newTestDB(t)
 	h := handlers.NewFavoriteHandler(gormDB)
 	r := setupFavoriteRouter(h, "other-user")
@@ -209,6 +217,7 @@ func TestAddFavorite_Forbidden(t *testing.T) {
 }
 
 func TestAddFavorite_PropertyNotFound(t *testing.T) {
+	t.Parallel()
 	gormDB, mock := newTestDB(t)
 	h := handlers.NewFavoriteHandler(gormDB)
 	r := setupFavoriteRouter(h, "user-1")
@@ -227,6 +236,7 @@ func TestAddFavorite_PropertyNotFound(t *testing.T) {
 }
 
 func TestAddFavorite_BadJSON(t *testing.T) {
+	t.Parallel()
 	gormDB, _ := newTestDB(t)
 	h := handlers.NewFavoriteHandler(gormDB)
 	r := setupFavoriteRouter(h, "user-1")
@@ -240,6 +250,7 @@ func TestAddFavorite_BadJSON(t *testing.T) {
 }
 
 func TestListFavorites_DBError(t *testing.T) {
+	t.Parallel()
 	gormDB, mock := newTestDB(t)
 	h := handlers.NewFavoriteHandler(gormDB)
 	r := setupFavoriteRouter(h, "user-1")

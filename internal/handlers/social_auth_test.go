@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"sync"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -21,13 +22,32 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// rsaTestKey generates an RSA key pair for tests and returns a JWKS server.
-// The returned server serves one key with kid="test-kid".
+// sharedRSAKey holds a single lazily-initialised 2048-bit RSA key reused
+// across all social-auth tests. Generating once instead of per-test removes
+// ~1 s of key-generation overhead from the suite (Go 1.22+ enforces a 2048-bit
+// minimum, so smaller key sizes panic on sign).
+var (
+	sharedRSAKeyOnce sync.Once
+	sharedRSAKey     *rsa.PrivateKey
+)
+
+func getSharedRSAKey(t *testing.T) *rsa.PrivateKey {
+	t.Helper()
+	sharedRSAKeyOnce.Do(func() {
+		var err error
+		sharedRSAKey, err = rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			panic("getSharedRSAKey: " + err.Error())
+		}
+	})
+	return sharedRSAKey
+}
+
+// rsaTestSetup returns the shared RSA key and a fresh per-test JWKS server
+// that serves the corresponding public key with kid="test-kid".
 func rsaTestSetup(t *testing.T) (privateKey *rsa.PrivateKey, jwksServer *httptest.Server) {
 	t.Helper()
-	var err error
-	privateKey, err = rsa.GenerateKey(rand.Reader, 2048)
-	require.NoError(t, err)
+	privateKey = getSharedRSAKey(t)
 
 	pub := &privateKey.PublicKey
 	nBytes := pub.N.Bytes()
@@ -74,6 +94,7 @@ func setupSocialRouter(h *handlers.SocialAuthHandler) *gin.Engine {
 // ----- Apple Sign In tests -----
 
 func TestAppleSignIn_BadJSON(t *testing.T) {
+	t.Parallel()
 	gormDB, _ := newTestDB(t)
 	h := handlers.NewSocialAuthHandler(gormDB, testAuthConfig())
 	r := setupSocialRouter(h)
@@ -87,6 +108,7 @@ func TestAppleSignIn_BadJSON(t *testing.T) {
 }
 
 func TestAppleSignIn_GarbageToken(t *testing.T) {
+	t.Parallel()
 	gormDB, _ := newTestDB(t)
 	h := handlers.NewSocialAuthHandler(gormDB, testAuthConfig())
 	r := setupSocialRouter(h)
@@ -100,6 +122,7 @@ func TestAppleSignIn_GarbageToken(t *testing.T) {
 }
 
 func TestAppleSignIn_WrongSigningMethod(t *testing.T) {
+	t.Parallel()
 	gormDB, _ := newTestDB(t)
 	h := handlers.NewSocialAuthHandler(gormDB, testAuthConfig())
 	r := setupSocialRouter(h)
@@ -116,6 +139,7 @@ func TestAppleSignIn_WrongSigningMethod(t *testing.T) {
 }
 
 func TestAppleSignIn_WrongIssuer(t *testing.T) {
+	t.Parallel()
 	privateKey, srv := rsaTestSetup(t)
 	gormDB, _ := newTestDB(t)
 	h := handlers.NewSocialAuthHandler(gormDB, testAuthConfig())
@@ -142,6 +166,7 @@ func TestAppleSignIn_WrongIssuer(t *testing.T) {
 }
 
 func TestAppleSignIn_NonceMismatch(t *testing.T) {
+	t.Parallel()
 	privateKey, srv := rsaTestSetup(t)
 	gormDB, _ := newTestDB(t)
 	h := handlers.NewSocialAuthHandler(gormDB, testAuthConfig())
@@ -165,6 +190,7 @@ func TestAppleSignIn_NonceMismatch(t *testing.T) {
 }
 
 func TestAppleSignIn_NewUser(t *testing.T) {
+	t.Parallel()
 	privateKey, srv := rsaTestSetup(t)
 	gormDB, mock := newTestDB(t)
 	h := handlers.NewSocialAuthHandler(gormDB, testAuthConfig())
@@ -210,6 +236,7 @@ func TestAppleSignIn_NewUser(t *testing.T) {
 }
 
 func TestAppleSignIn_ReturningUser(t *testing.T) {
+	t.Parallel()
 	privateKey, srv := rsaTestSetup(t)
 	gormDB, mock := newTestDB(t)
 	h := handlers.NewSocialAuthHandler(gormDB, testAuthConfig())
@@ -242,6 +269,7 @@ func TestAppleSignIn_ReturningUser(t *testing.T) {
 }
 
 func TestAppleSignIn_NoEmailForNewUser(t *testing.T) {
+	t.Parallel()
 	privateKey, srv := rsaTestSetup(t)
 	gormDB, mock := newTestDB(t)
 	h := handlers.NewSocialAuthHandler(gormDB, testAuthConfig())
@@ -275,6 +303,7 @@ func TestAppleSignIn_NoEmailForNewUser(t *testing.T) {
 // ----- Google Sign In tests -----
 
 func TestGoogleSignIn_WrongSigningMethod(t *testing.T) {
+	t.Parallel()
 	gormDB, _ := newTestDB(t)
 	h := handlers.NewSocialAuthHandler(gormDB, testAuthConfig())
 	r := setupSocialRouter(h)
@@ -290,11 +319,12 @@ func TestGoogleSignIn_WrongSigningMethod(t *testing.T) {
 }
 
 func TestAppleSignIn_JWKSHTTPError(t *testing.T) {
+	t.Parallel()
 	// Start then immediately close the server so http.Get gets connection refused
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	srv.Close()
 
-	privateKey, _ := rsa.GenerateKey(rand.Reader, 2048)
+	privateKey := getSharedRSAKey(t)
 	gormDB, _ := newTestDB(t)
 	h := handlers.NewSocialAuthHandler(gormDB, testAuthConfig())
 	h.AppleJWKSURL = srv.URL
@@ -318,6 +348,7 @@ func TestAppleSignIn_JWKSHTTPError(t *testing.T) {
 }
 
 func TestGoogleSignIn_BadJSON(t *testing.T) {
+	t.Parallel()
 	gormDB, _ := newTestDB(t)
 	h := handlers.NewSocialAuthHandler(gormDB, testAuthConfig())
 	r := setupSocialRouter(h)
@@ -331,6 +362,7 @@ func TestGoogleSignIn_BadJSON(t *testing.T) {
 }
 
 func TestGoogleSignIn_GarbageToken(t *testing.T) {
+	t.Parallel()
 	gormDB, _ := newTestDB(t)
 	h := handlers.NewSocialAuthHandler(gormDB, testAuthConfig())
 	r := setupSocialRouter(h)
@@ -343,6 +375,7 @@ func TestGoogleSignIn_GarbageToken(t *testing.T) {
 }
 
 func TestGoogleSignIn_WrongIssuer(t *testing.T) {
+	t.Parallel()
 	privateKey, srv := rsaTestSetup(t)
 	gormDB, _ := newTestDB(t)
 	h := handlers.NewSocialAuthHandler(gormDB, testAuthConfig())
@@ -363,6 +396,7 @@ func TestGoogleSignIn_WrongIssuer(t *testing.T) {
 }
 
 func TestGoogleSignIn_NewUser(t *testing.T) {
+	t.Parallel()
 	privateKey, srv := rsaTestSetup(t)
 	gormDB, mock := newTestDB(t)
 	h := handlers.NewSocialAuthHandler(gormDB, testAuthConfig())
@@ -405,6 +439,7 @@ func TestGoogleSignIn_NewUser(t *testing.T) {
 }
 
 func TestAppleSignIn_EmptySubject(t *testing.T) {
+	t.Parallel()
 	privateKey, srv := rsaTestSetup(t)
 	gormDB, _ := newTestDB(t)
 	h := handlers.NewSocialAuthHandler(gormDB, testAuthConfig())
@@ -430,6 +465,7 @@ func TestAppleSignIn_EmptySubject(t *testing.T) {
 }
 
 func TestAppleSignIn_LinkExistingEmailAccount(t *testing.T) {
+	t.Parallel()
 	privateKey, srv := rsaTestSetup(t)
 	gormDB, mock := newTestDB(t)
 	h := handlers.NewSocialAuthHandler(gormDB, testAuthConfig())
@@ -469,6 +505,7 @@ func TestAppleSignIn_LinkExistingEmailAccount(t *testing.T) {
 }
 
 func TestAppleSignIn_KidNotInJWKS(t *testing.T) {
+	t.Parallel()
 	// JWKS server returns a key with a different kid
 	jwksServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -476,7 +513,7 @@ func TestAppleSignIn_KidNotInJWKS(t *testing.T) {
 	}))
 	defer jwksServer.Close()
 
-	privateKey, _ := rsa.GenerateKey(rand.Reader, 2048)
+	privateKey := getSharedRSAKey(t)
 	gormDB, _ := newTestDB(t)
 	h := handlers.NewSocialAuthHandler(gormDB, testAuthConfig())
 	h.AppleJWKSURL = jwksServer.URL
@@ -500,6 +537,7 @@ func TestAppleSignIn_KidNotInJWKS(t *testing.T) {
 }
 
 func TestGoogleSignIn_JWKSFetchError(t *testing.T) {
+	t.Parallel()
 	// JWKS server returns 500
 	jwksServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -507,7 +545,7 @@ func TestGoogleSignIn_JWKSFetchError(t *testing.T) {
 	}))
 	defer jwksServer.Close()
 
-	privateKey, _ := rsa.GenerateKey(rand.Reader, 2048)
+	privateKey := getSharedRSAKey(t)
 	gormDB, _ := newTestDB(t)
 	h := handlers.NewSocialAuthHandler(gormDB, testAuthConfig())
 	h.GoogleJWKSURL = jwksServer.URL
@@ -527,6 +565,7 @@ func TestGoogleSignIn_JWKSFetchError(t *testing.T) {
 }
 
 func TestAppleSignIn_CacheHit(t *testing.T) {
+	t.Parallel()
 	privateKey, srv := rsaTestSetup(t)
 	fetchCount := 0
 	countingServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -570,13 +609,14 @@ func TestAppleSignIn_CacheHit(t *testing.T) {
 }
 
 func TestGoogleSignIn_KidNotInJWKS(t *testing.T) {
+	t.Parallel()
 	jwksServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"keys":[{"kty":"RSA","kid":"other-kid","n":"AAAA","e":"AQAB"}]}`))
 	}))
 	defer jwksServer.Close()
 
-	privateKey, _ := rsa.GenerateKey(rand.Reader, 2048)
+	privateKey := getSharedRSAKey(t)
 	gormDB, _ := newTestDB(t)
 	h := handlers.NewSocialAuthHandler(gormDB, testAuthConfig())
 	h.GoogleJWKSURL = jwksServer.URL
@@ -596,6 +636,7 @@ func TestGoogleSignIn_KidNotInJWKS(t *testing.T) {
 }
 
 func TestGoogleSignIn_EmptySubject(t *testing.T) {
+	t.Parallel()
 	privateKey, srv := rsaTestSetup(t)
 	gormDB, _ := newTestDB(t)
 	h := handlers.NewSocialAuthHandler(gormDB, testAuthConfig())
@@ -616,6 +657,7 @@ func TestGoogleSignIn_EmptySubject(t *testing.T) {
 }
 
 func TestGoogleSignIn_ReturningUser(t *testing.T) {
+	t.Parallel()
 	privateKey, srv := rsaTestSetup(t)
 	gormDB, mock := newTestDB(t)
 	h := handlers.NewSocialAuthHandler(gormDB, testAuthConfig())
@@ -641,6 +683,7 @@ func TestGoogleSignIn_ReturningUser(t *testing.T) {
 }
 
 func TestGoogleSignIn_NewUser_NoNameClaim(t *testing.T) {
+	t.Parallel()
 	privateKey, srv := rsaTestSetup(t)
 	gormDB, mock := newTestDB(t)
 	h := handlers.NewSocialAuthHandler(gormDB, testAuthConfig())
@@ -674,6 +717,7 @@ func TestGoogleSignIn_NewUser_NoNameClaim(t *testing.T) {
 }
 
 func TestGoogleSignIn_LinkExistingAccount(t *testing.T) {
+	t.Parallel()
 	privateKey, srv := rsaTestSetup(t)
 	gormDB, mock := newTestDB(t)
 	h := handlers.NewSocialAuthHandler(gormDB, testAuthConfig())

@@ -36,6 +36,7 @@ func setupUserRouter(h *handlers.UserHandler, callerID string) *gin.Engine {
 }
 
 func TestGetUser_Self(t *testing.T) {
+	t.Parallel()
 	gormDB, mock := newTestDB(t)
 	h := handlers.NewUserHandler(gormDB)
 	r := setupUserRouter(h, "user-1")
@@ -58,6 +59,7 @@ func TestGetUser_Self(t *testing.T) {
 }
 
 func TestGetUser_Other_HidesFields(t *testing.T) {
+	t.Parallel()
 	gormDB, mock := newTestDB(t)
 	h := handlers.NewUserHandler(gormDB)
 	// callerID = "caller-id" fetching user-2's profile
@@ -83,6 +85,7 @@ func TestGetUser_Other_HidesFields(t *testing.T) {
 }
 
 func TestGetUser_NotFound(t *testing.T) {
+	t.Parallel()
 	gormDB, mock := newTestDB(t)
 	h := handlers.NewUserHandler(gormDB)
 	r := setupUserRouter(h, "caller-id")
@@ -99,6 +102,7 @@ func TestGetUser_NotFound(t *testing.T) {
 }
 
 func TestUpdateUser_Success(t *testing.T) {
+	t.Parallel()
 	gormDB, mock := newTestDB(t)
 	h := handlers.NewUserHandler(gormDB)
 	r := setupUserRouter(h, "user-1")
@@ -131,6 +135,7 @@ func TestUpdateUser_Success(t *testing.T) {
 }
 
 func TestUpdateUser_Forbidden(t *testing.T) {
+	t.Parallel()
 	gormDB, _ := newTestDB(t)
 	h := handlers.NewUserHandler(gormDB)
 	// callerID is different from the target user
@@ -146,6 +151,7 @@ func TestUpdateUser_Forbidden(t *testing.T) {
 }
 
 func TestDeleteUser_Success(t *testing.T) {
+	t.Parallel()
 	gormDB, mock := newTestDB(t)
 	h := handlers.NewUserHandler(gormDB)
 	r := setupUserRouter(h, "user-1")
@@ -168,6 +174,7 @@ func TestDeleteUser_Success(t *testing.T) {
 }
 
 func TestDeleteUser_Forbidden(t *testing.T) {
+	t.Parallel()
 	gormDB, _ := newTestDB(t)
 	h := handlers.NewUserHandler(gormDB)
 	r := setupUserRouter(h, "other-user")
@@ -180,6 +187,7 @@ func TestDeleteUser_Forbidden(t *testing.T) {
 }
 
 func TestDeleteUser_NotFound(t *testing.T) {
+	t.Parallel()
 	gormDB, mock := newTestDB(t)
 	h := handlers.NewUserHandler(gormDB)
 	r := setupUserRouter(h, "user-1")
@@ -196,6 +204,7 @@ func TestDeleteUser_NotFound(t *testing.T) {
 }
 
 func TestDeleteUser_DBError(t *testing.T) {
+	t.Parallel()
 	gormDB, mock := newTestDB(t)
 	h := handlers.NewUserHandler(gormDB)
 	r := setupUserRouter(h, "user-1")
@@ -218,6 +227,7 @@ func TestDeleteUser_DBError(t *testing.T) {
 }
 
 func TestUpdateUser_AllFields(t *testing.T) {
+	t.Parallel()
 	gormDB, mock := newTestDB(t)
 	h := handlers.NewUserHandler(gormDB)
 	r := setupUserRouter(h, "user-1")
@@ -260,6 +270,7 @@ func TestUpdateUser_AllFields(t *testing.T) {
 }
 
 func TestUpdateUser_BadJSON(t *testing.T) {
+	t.Parallel()
 	gormDB, _ := newTestDB(t)
 	h := handlers.NewUserHandler(gormDB)
 	r := setupUserRouter(h, "user-1")
@@ -273,6 +284,7 @@ func TestUpdateUser_BadJSON(t *testing.T) {
 }
 
 func TestUpdateUser_NotFound(t *testing.T) {
+	t.Parallel()
 	gormDB, mock := newTestDB(t)
 	h := handlers.NewUserHandler(gormDB)
 	r := setupUserRouter(h, "user-1")
@@ -302,6 +314,7 @@ func setupMeRouter(h *handlers.UserHandler, callerID string) *gin.Engine {
 }
 
 func TestGetMe_Success(t *testing.T) {
+	t.Parallel()
 	gormDB, mock := newTestDB(t)
 	h := handlers.NewUserHandler(gormDB)
 	r := setupMeRouter(h, "user-1")
@@ -323,6 +336,7 @@ func TestGetMe_Success(t *testing.T) {
 }
 
 func TestGetMe_NotFound(t *testing.T) {
+	t.Parallel()
 	gormDB, mock := newTestDB(t)
 	h := handlers.NewUserHandler(gormDB)
 	r := setupMeRouter(h, "ghost-user")

@@ -38,6 +38,7 @@ func testConfig() *config.Config {
 }
 
 func TestAuthMiddleware_ValidToken(t *testing.T) {
+	t.Parallel()
 	cfg := testConfig()
 	token := generateTestToken("user-123", "access", testSecret, 15*time.Minute)
 
@@ -57,93 +58,73 @@ func TestAuthMiddleware_ValidToken(t *testing.T) {
 	assert.Equal(t, "user-123", capturedUserID)
 }
 
-func TestAuthMiddleware_MissingHeader(t *testing.T) {
+// TestAuthMiddleware_Rejections consolidates all cases that should return 401.
+func TestAuthMiddleware_Rejections(t *testing.T) {
+	t.Parallel()
 	cfg := testConfig()
-
-	w := httptest.NewRecorder()
-	r := gin.New()
-	r.GET("/test", middleware.AuthMiddleware(cfg), func(c *gin.Context) {
-		c.Status(http.StatusOK)
-	})
-
-	req, _ := http.NewRequest(http.MethodGet, "/test", nil)
-	r.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
-}
-
-func TestAuthMiddleware_MalformedHeader(t *testing.T) {
-	cfg := testConfig()
-	token := generateTestToken("user-123", "access", testSecret, 15*time.Minute)
-
-	w := httptest.NewRecorder()
-	r := gin.New()
-	r.GET("/test", middleware.AuthMiddleware(cfg), func(c *gin.Context) {
-		c.Status(http.StatusOK)
-	})
-
-	req, _ := http.NewRequest(http.MethodGet, "/test", nil)
-	req.Header.Set("Authorization", "Token "+token)
-	r.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
-}
-
-func TestAuthMiddleware_ExpiredToken(t *testing.T) {
-	cfg := testConfig()
-	token := generateTestToken("user-123", "access", testSecret, -1*time.Minute)
-
-	w := httptest.NewRecorder()
-	r := gin.New()
-	r.GET("/test", middleware.AuthMiddleware(cfg), func(c *gin.Context) {
-		c.Status(http.StatusOK)
-	})
-
-	req, _ := http.NewRequest(http.MethodGet, "/test", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	r.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
-}
-
-func TestAuthMiddleware_InvalidSignature(t *testing.T) {
-	cfg := testConfig()
-	// Sign with wrong secret
-	token := generateTestToken("user-123", "access", "wrong-secret", 15*time.Minute)
-
-	w := httptest.NewRecorder()
-	r := gin.New()
-	r.GET("/test", middleware.AuthMiddleware(cfg), func(c *gin.Context) {
-		c.Status(http.StatusOK)
-	})
-
-	req, _ := http.NewRequest(http.MethodGet, "/test", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	r.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
-}
-
-func TestAuthMiddleware_EmptySubject(t *testing.T) {
-	cfg := testConfig()
-	claims := jwt.MapClaims{
-		"sub":  "",
-		"type": "access",
-		"exp":  time.Now().Add(15 * time.Minute).Unix(),
-		"iat":  time.Now().Unix(),
+	tests := []struct {
+		name    string
+		makeReq func() *http.Request
+	}{
+		{
+			name: "missing Authorization header",
+			makeReq: func() *http.Request {
+				req, _ := http.NewRequest(http.MethodGet, "/test", nil)
+				return req
+			},
+		},
+		{
+			name: "malformed header (Token scheme instead of Bearer)",
+			makeReq: func() *http.Request {
+				req, _ := http.NewRequest(http.MethodGet, "/test", nil)
+				req.Header.Set("Authorization", "Token "+generateTestToken("user-123", "access", testSecret, 15*time.Minute))
+				return req
+			},
+		},
+		{
+			name: "expired token",
+			makeReq: func() *http.Request {
+				req, _ := http.NewRequest(http.MethodGet, "/test", nil)
+				req.Header.Set("Authorization", "Bearer "+generateTestToken("user-123", "access", testSecret, -1*time.Minute))
+				return req
+			},
+		},
+		{
+			name: "invalid signature (wrong secret)",
+			makeReq: func() *http.Request {
+				req, _ := http.NewRequest(http.MethodGet, "/test", nil)
+				req.Header.Set("Authorization", "Bearer "+generateTestToken("user-123", "access", "wrong-secret", 15*time.Minute))
+				return req
+			},
+		},
+		{
+			name: "empty subject",
+			makeReq: func() *http.Request {
+				claims := jwt.MapClaims{
+					"sub":  "",
+					"type": "access",
+					"exp":  time.Now().Add(15 * time.Minute).Unix(),
+					"iat":  time.Now().Unix(),
+				}
+				token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+				signed, _ := token.SignedString([]byte(testSecret))
+				req, _ := http.NewRequest(http.MethodGet, "/test", nil)
+				req.Header.Set("Authorization", "Bearer "+signed)
+				return req
+			},
+		},
 	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	signed, _ := token.SignedString([]byte(testSecret))
-
-	w := httptest.NewRecorder()
-	r := gin.New()
-	r.GET("/test", middleware.AuthMiddleware(cfg), func(c *gin.Context) {
-		c.Status(http.StatusOK)
-	})
-
-	req, _ := http.NewRequest(http.MethodGet, "/test", nil)
-	req.Header.Set("Authorization", "Bearer "+signed)
-	r.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			w := httptest.NewRecorder()
+			r := gin.New()
+			r.GET("/test", middleware.AuthMiddleware(cfg), func(c *gin.Context) {
+				c.Status(http.StatusOK)
+			})
+			r.ServeHTTP(w, tt.makeReq())
+			assert.Equal(t, http.StatusUnauthorized, w.Code)
+		})
+	}
 }

@@ -28,7 +28,12 @@ build:
 
 # Run all tests
 test:
-	go test ./...
+	go test -count=1 -parallel 8 ./...
+
+# Run all tests with coverage report
+test-cover:
+	go test -count=1 -parallel 8 -coverprofile=coverage.out ./...
+	go tool cover -html=coverage.out -o coverage.html
 
 # Boot simulator, build and launch the iOS app
 sim:

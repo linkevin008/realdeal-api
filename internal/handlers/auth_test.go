@@ -66,7 +66,7 @@ func postJSON(router *gin.Engine, path string, body interface{}) *httptest.Respo
 	return w
 }
 
-// userRowValues returns the columns and values for a user row.
+// userColumns returns the column list for a user row.
 func userColumns() []string {
 	return []string{
 		"id", "name", "email", "password_hash", "phone_number", "profile_photo_url",
@@ -82,6 +82,7 @@ func userRowValues(id, name, email, hash string) []driver.Value {
 // ----- Signup tests -----
 
 func TestSignup_Success(t *testing.T) {
+	t.Parallel()
 	gormDB, mock := newTestDB(t)
 	cfg := testAuthConfig()
 	h := handlers.NewAuthHandler(gormDB, cfg)
@@ -115,52 +116,56 @@ func TestSignup_Success(t *testing.T) {
 	assert.NotEmpty(t, data["refresh_token"])
 }
 
-func TestSignup_MissingEmail(t *testing.T) {
-	gormDB, _ := newTestDB(t)
-	h := handlers.NewAuthHandler(gormDB, testAuthConfig())
+// TestSignup_InvalidInput consolidates all signup input-validation failure cases.
+func TestSignup_InvalidInput(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		body    map[string]interface{}
+		rawBody string // non-empty triggers a raw (malformed-JSON) request
+	}{
+		{
+			name: "missing email",
+			body: map[string]interface{}{"name": "Alice", "password": "password123"},
+		},
+		{
+			name: "missing password",
+			body: map[string]interface{}{"name": "Alice", "email": "test@example.com"},
+		},
+		{
+			name: "missing name",
+			body: map[string]interface{}{"email": "test@example.com", "password": "password123"},
+		},
+		{
+			name:    "bad JSON",
+			rawBody: "not-json",
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			gormDB, _ := newTestDB(t)
+			h := handlers.NewAuthHandler(gormDB, testAuthConfig())
+			r := gin.New()
+			r.POST("/signup", h.Signup)
 
-	r := gin.New()
-	r.POST("/signup", h.Signup)
-
-	w := postJSON(r, "/signup", map[string]interface{}{
-		"name":     "Alice",
-		"password": "password123",
-	})
-
-	assert.Equal(t, http.StatusBadRequest, w.Code)
-}
-
-func TestSignup_MissingPassword(t *testing.T) {
-	gormDB, _ := newTestDB(t)
-	h := handlers.NewAuthHandler(gormDB, testAuthConfig())
-
-	r := gin.New()
-	r.POST("/signup", h.Signup)
-
-	w := postJSON(r, "/signup", map[string]interface{}{
-		"name":  "Alice",
-		"email": "test@example.com",
-	})
-
-	assert.Equal(t, http.StatusBadRequest, w.Code)
-}
-
-func TestSignup_MissingName(t *testing.T) {
-	gormDB, _ := newTestDB(t)
-	h := handlers.NewAuthHandler(gormDB, testAuthConfig())
-
-	r := gin.New()
-	r.POST("/signup", h.Signup)
-
-	w := postJSON(r, "/signup", map[string]interface{}{
-		"email":    "test@example.com",
-		"password": "password123",
-	})
-
-	assert.Equal(t, http.StatusBadRequest, w.Code)
+			var w *httptest.ResponseRecorder
+			if tt.rawBody != "" {
+				w = httptest.NewRecorder()
+				req, _ := http.NewRequest(http.MethodPost, "/signup", bytes.NewBufferString(tt.rawBody))
+				req.Header.Set("Content-Type", "application/json")
+				r.ServeHTTP(w, req)
+			} else {
+				w = postJSON(r, "/signup", tt.body)
+			}
+			assert.Equal(t, http.StatusBadRequest, w.Code)
+		})
+	}
 }
 
 func TestSignup_DBError(t *testing.T) {
+	t.Parallel()
 	gormDB, mock := newTestDB(t)
 	cfg := testAuthConfig()
 	h := handlers.NewAuthHandler(gormDB, cfg)
@@ -189,6 +194,7 @@ func TestSignup_DBError(t *testing.T) {
 }
 
 func TestSignup_DuplicateEmail(t *testing.T) {
+	t.Parallel()
 	gormDB, mock := newTestDB(t)
 	cfg := testAuthConfig()
 	h := handlers.NewAuthHandler(gormDB, cfg)
@@ -217,6 +223,7 @@ func TestSignup_DuplicateEmail(t *testing.T) {
 // ----- Signin tests -----
 
 func TestSignin_Success(t *testing.T) {
+	t.Parallel()
 	gormDB, mock := newTestDB(t)
 	cfg := testAuthConfig()
 	h := handlers.NewAuthHandler(gormDB, cfg)
@@ -244,6 +251,7 @@ func TestSignin_Success(t *testing.T) {
 }
 
 func TestSignin_WrongPassword(t *testing.T) {
+	t.Parallel()
 	gormDB, mock := newTestDB(t)
 	cfg := testAuthConfig()
 	h := handlers.NewAuthHandler(gormDB, cfg)
@@ -269,6 +277,7 @@ func TestSignin_WrongPassword(t *testing.T) {
 }
 
 func TestSignin_UserNotFound(t *testing.T) {
+	t.Parallel()
 	gormDB, mock := newTestDB(t)
 	cfg := testAuthConfig()
 	h := handlers.NewAuthHandler(gormDB, cfg)
@@ -291,9 +300,26 @@ func TestSignin_UserNotFound(t *testing.T) {
 	assert.Equal(t, "INVALID_CREDENTIALS", resp["code"])
 }
 
+func TestSignin_BadJSON(t *testing.T) {
+	t.Parallel()
+	gormDB, _ := newTestDB(t)
+	h := handlers.NewAuthHandler(gormDB, testAuthConfig())
+
+	r := gin.New()
+	r.POST("/signin", h.Signin)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPost, "/signin", bytes.NewBufferString("not-json"))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
 // ----- Refresh tests -----
 
 func TestRefreshToken_Success(t *testing.T) {
+	t.Parallel()
 	gormDB, _ := newTestDB(t)
 	cfg := testAuthConfig()
 	h := handlers.NewAuthHandler(gormDB, cfg)
@@ -315,57 +341,77 @@ func TestRefreshToken_Success(t *testing.T) {
 	assert.NotEmpty(t, data["refresh_token"])
 }
 
-func TestRefreshToken_InvalidToken(t *testing.T) {
-	gormDB, _ := newTestDB(t)
-	cfg := testAuthConfig()
-	h := handlers.NewAuthHandler(gormDB, cfg)
+// TestRefreshToken_InvalidInputs consolidates all refresh-token rejection cases.
+func TestRefreshToken_InvalidInputs(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		makeBody func() map[string]interface{}
+		wantCode int
+		wantErr  string
+	}{
+		{
+			name: "invalid token string",
+			makeBody: func() map[string]interface{} {
+				return map[string]interface{}{"refresh_token": "this.is.not.a.valid.token"}
+			},
+			wantCode: http.StatusUnauthorized,
+		},
+		{
+			name: "wrong token type (access instead of refresh)",
+			makeBody: func() map[string]interface{} {
+				return map[string]interface{}{
+					"refresh_token": generateToken("user-abc", "access", jwtTestSecret, 15*time.Minute),
+				}
+			},
+			wantCode: http.StatusUnauthorized,
+			wantErr:  "UNAUTHORIZED",
+		},
+		{
+			name:     "missing body",
+			makeBody: func() map[string]interface{} { return map[string]interface{}{} },
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "empty subject",
+			makeBody: func() map[string]interface{} {
+				claims := jwt.MapClaims{
+					"sub":  "",
+					"type": "refresh",
+					"exp":  time.Now().Add(7 * 24 * time.Hour).Unix(),
+					"iat":  time.Now().Unix(),
+				}
+				token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+				signed, _ := token.SignedString([]byte(jwtTestSecret))
+				return map[string]interface{}{"refresh_token": signed}
+			},
+			wantCode: http.StatusUnauthorized,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			gormDB, _ := newTestDB(t)
+			h := handlers.NewAuthHandler(gormDB, testAuthConfig())
+			r := gin.New()
+			r.POST("/refresh", h.Refresh)
 
-	r := gin.New()
-	r.POST("/refresh", h.Refresh)
-
-	w := postJSON(r, "/refresh", map[string]interface{}{
-		"refresh_token": "this.is.not.a.valid.token",
-	})
-
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
-}
-
-func TestRefreshToken_WrongTokenType(t *testing.T) {
-	gormDB, _ := newTestDB(t)
-	cfg := testAuthConfig()
-	h := handlers.NewAuthHandler(gormDB, cfg)
-
-	r := gin.New()
-	r.POST("/refresh", h.Refresh)
-
-	// Use an access token instead of refresh token
-	accessToken := generateToken("user-abc", "access", jwtTestSecret, 15*time.Minute)
-
-	w := postJSON(r, "/refresh", map[string]interface{}{
-		"refresh_token": accessToken,
-	})
-
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
-	var resp map[string]interface{}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.Equal(t, "UNAUTHORIZED", resp["code"])
-}
-
-func TestRefreshToken_MissingBody(t *testing.T) {
-	gormDB, _ := newTestDB(t)
-	h := handlers.NewAuthHandler(gormDB, testAuthConfig())
-
-	r := gin.New()
-	r.POST("/refresh", h.Refresh)
-
-	w := postJSON(r, "/refresh", map[string]interface{}{})
-
-	assert.Equal(t, http.StatusBadRequest, w.Code)
+			w := postJSON(r, "/refresh", tt.makeBody())
+			assert.Equal(t, tt.wantCode, w.Code)
+			if tt.wantErr != "" {
+				var resp map[string]interface{}
+				require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+				assert.Equal(t, tt.wantErr, resp["code"])
+			}
+		})
+	}
 }
 
 // ----- Signout tests -----
 
 func TestSignout_Success(t *testing.T) {
+	t.Parallel()
 	gormDB, _ := newTestDB(t)
 	h := handlers.NewAuthHandler(gormDB, testAuthConfig())
 
@@ -375,57 +421,4 @@ func TestSignout_Success(t *testing.T) {
 	w := postJSON(r, "/signout", nil)
 
 	assert.Equal(t, http.StatusNoContent, w.Code)
-}
-
-func TestSignup_BadJSON(t *testing.T) {
-	gormDB, _ := newTestDB(t)
-	h := handlers.NewAuthHandler(gormDB, testAuthConfig())
-
-	r := gin.New()
-	r.POST("/signup", h.Signup)
-
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodPost, "/signup", bytes.NewBufferString("not-json"))
-	req.Header.Set("Content-Type", "application/json")
-	r.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusBadRequest, w.Code)
-}
-
-func TestSignin_BadJSON(t *testing.T) {
-	gormDB, _ := newTestDB(t)
-	h := handlers.NewAuthHandler(gormDB, testAuthConfig())
-
-	r := gin.New()
-	r.POST("/signin", h.Signin)
-
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodPost, "/signin", bytes.NewBufferString("not-json"))
-	req.Header.Set("Content-Type", "application/json")
-	r.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusBadRequest, w.Code)
-}
-
-func TestRefreshToken_EmptySubject(t *testing.T) {
-	gormDB, _ := newTestDB(t)
-	h := handlers.NewAuthHandler(gormDB, testAuthConfig())
-
-	r := gin.New()
-	r.POST("/refresh", h.Refresh)
-
-	claims := jwt.MapClaims{
-		"sub":  "",
-		"type": "refresh",
-		"exp":  time.Now().Add(7 * 24 * time.Hour).Unix(),
-		"iat":  time.Now().Unix(),
-	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	signed, _ := token.SignedString([]byte(jwtTestSecret))
-
-	w := postJSON(r, "/refresh", map[string]interface{}{
-		"refresh_token": signed,
-	})
-
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }

@@ -11,6 +11,7 @@ import (
 )
 
 func TestLoggerMiddleware_LogsRequest(t *testing.T) {
+	t.Parallel()
 	w := httptest.NewRecorder()
 	r := gin.New()
 	r.Use(middleware.Logger())
