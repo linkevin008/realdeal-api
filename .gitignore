@@ -11,3 +11,6 @@ go.work.sum
 
 # OS
 .DS_Store
+
+# Claude
+.claude
