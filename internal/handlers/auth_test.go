@@ -193,34 +193,6 @@ func TestSignup_DBError(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
-func TestSignup_DBError(t *testing.T) {
-	gormDB, mock := newTestDB(t)
-	cfg := testAuthConfig()
-	h := handlers.NewAuthHandler(gormDB, cfg)
-
-	r := gin.New()
-	r.POST("/signup", h.Signup)
-
-	// Email does not exist
-	mock.ExpectQuery(`SELECT .* FROM "users"`).
-		WithArgs("new@example.com", 1).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}))
-
-	// Insert fails
-	mock.ExpectBegin()
-	mock.ExpectQuery(`INSERT INTO "users"`).
-		WillReturnError(fmt.Errorf("db connection lost"))
-	mock.ExpectRollback()
-
-	w := postJSON(r, "/signup", map[string]interface{}{
-		"name":     "Alice",
-		"email":    "new@example.com",
-		"password": "password123",
-	})
-
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
-}
-
 func TestSignup_DuplicateEmail(t *testing.T) {
 	t.Parallel()
 	gormDB, mock := newTestDB(t)
@@ -451,6 +423,8 @@ func TestSignout_Success(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, w.Code)
 }
 
+// ----- Legacy standalone tests (kept for coverage, not duplicates) -----
+
 func TestRefreshToken_MissingBody(t *testing.T) {
 	gormDB, _ := newTestDB(t)
 	h := handlers.NewAuthHandler(gormDB, testAuthConfig())
@@ -463,20 +437,6 @@ func TestRefreshToken_MissingBody(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
-// ----- Signout tests -----
-
-func TestSignout_Success(t *testing.T) {
-	gormDB, _ := newTestDB(t)
-	h := handlers.NewAuthHandler(gormDB, testAuthConfig())
-
-	r := gin.New()
-	r.POST("/signout", h.Signout)
-
-	w := postJSON(r, "/signout", nil)
-
-	assert.Equal(t, http.StatusNoContent, w.Code)
-}
-
 func TestSignup_BadJSON(t *testing.T) {
 	gormDB, _ := newTestDB(t)
 	h := handlers.NewAuthHandler(gormDB, testAuthConfig())
@@ -486,21 +446,6 @@ func TestSignup_BadJSON(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodPost, "/signup", bytes.NewBufferString("not-json"))
-	req.Header.Set("Content-Type", "application/json")
-	r.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusBadRequest, w.Code)
-}
-
-func TestSignin_BadJSON(t *testing.T) {
-	gormDB, _ := newTestDB(t)
-	h := handlers.NewAuthHandler(gormDB, testAuthConfig())
-
-	r := gin.New()
-	r.POST("/signin", h.Signin)
-
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodPost, "/signin", bytes.NewBufferString("not-json"))
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(w, req)
 

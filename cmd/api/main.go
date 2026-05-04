@@ -9,6 +9,7 @@ import (
 	"github.com/kevinlin/realdeal-api/internal/database"
 	"github.com/kevinlin/realdeal-api/internal/handlers"
 	"github.com/kevinlin/realdeal-api/internal/middleware"
+	"github.com/kevinlin/realdeal-api/internal/services"
 )
 
 func main() {
@@ -43,12 +44,21 @@ func main() {
 	healthHandler := handlers.NewHealthHandler(db)
 	r.GET("/health", healthHandler.Health)
 
+	// Initialize upload service (optional — server starts even if S3 is not configured)
+	var uploadSvc services.UploadServiceInterface
+	if svc, err := services.NewUploadService(cfg); err != nil {
+		log.Printf("Upload service unavailable: %v", err)
+	} else {
+		uploadSvc = svc
+	}
+
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(db, cfg)
 	socialAuthHandler := handlers.NewSocialAuthHandler(db, cfg)
 	userHandler := handlers.NewUserHandler(db)
 	propertyHandler := handlers.NewPropertyHandler(db)
 	favoriteHandler := handlers.NewFavoriteHandler(db)
+	uploadHandler := handlers.NewUploadHandler(uploadSvc)
 
 	// Auth middleware
 	authMW := middleware.AuthMiddleware(cfg)
@@ -80,6 +90,9 @@ func main() {
 		users.POST("/:id/favorites", authMW, favoriteHandler.AddFavorite)
 		users.DELETE("/:id/favorites/:propertyId", authMW, favoriteHandler.RemoveFavorite)
 	}
+
+	// Upload routes
+	v1.POST("/upload/presign", authMW, uploadHandler.Presign)
 
 	// Property routes
 	properties := v1.Group("/properties")

@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log"
 	"os"
 )
 
@@ -22,6 +23,11 @@ type Config struct {
 
 	// Auth
 	JWTSecret string
+
+	// AWS / Media upload
+	AWSRegion         string
+	S3Bucket          string
+	CloudFrontBaseURL string
 }
 
 // Load reads configuration from environment variables.
@@ -36,6 +42,10 @@ func Load() (*Config, error) {
 		DBName:     getEnv("DB_NAME", "realdeal"),
 		DBSSLMode:  getEnv("DB_SSL_MODE", "disable"),
 		JWTSecret:  getEnv("JWT_SECRET", ""),
+
+		AWSRegion:         getEnv("AWS_REGION", "us-west-2"),
+		S3Bucket:          getEnv("S3_BUCKET", ""),
+		CloudFrontBaseURL: getEnv("CLOUDFRONT_BASE_URL", ""),
 	}
 
 	if cfg.DBPassword == "" {
@@ -44,6 +54,14 @@ func Load() (*Config, error) {
 
 	if cfg.JWTSecret == "" {
 		return nil, fmt.Errorf("JWT_SECRET is required")
+	}
+
+	// S3 config is optional — warn if missing so devs know uploads will be unavailable.
+	if cfg.S3Bucket == "" {
+		log.Println("WARNING: S3_BUCKET is not set — upload endpoint will return 503")
+	}
+	if cfg.CloudFrontBaseURL == "" {
+		log.Println("WARNING: CLOUDFRONT_BASE_URL is not set — upload endpoint will return 503")
 	}
 
 	return cfg, nil
