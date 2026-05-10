@@ -59,6 +59,7 @@ func main() {
 	propertyHandler := handlers.NewPropertyHandler(db)
 	favoriteHandler := handlers.NewFavoriteHandler(db)
 	uploadHandler := handlers.NewUploadHandler(uploadSvc)
+	offerHandler := handlers.NewOfferHandler(db)
 
 	// Auth middleware
 	authMW := middleware.AuthMiddleware(cfg)
@@ -102,7 +103,17 @@ func main() {
 		properties.POST("", authMW, propertyHandler.CreateProperty)
 		properties.PUT("/:id", authMW, propertyHandler.UpdateProperty)
 		properties.DELETE("/:id", authMW, propertyHandler.DeleteProperty)
+
+		// Offer routes (nested under property)
+		properties.POST("/:id/offers", authMW, offerHandler.SubmitOffer)
+		properties.GET("/:id/offers", authMW, offerHandler.ListOffers)
+		properties.PUT("/:id/offers/:offerId/accept", authMW, offerHandler.AcceptOffer)
+		properties.PUT("/:id/offers/:offerId/reject", authMW, offerHandler.RejectOffer)
+		properties.DELETE("/:id/offers/:offerId", authMW, offerHandler.WithdrawOffer)
 	}
+
+	// Buyer's own offers
+	users.GET("/me/offers", authMW, offerHandler.ListMyOffers)
 
 	// Start server
 	log.Printf("Starting server on :%s (env: %s)", cfg.Port, cfg.Env)

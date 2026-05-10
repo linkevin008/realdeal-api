@@ -8,23 +8,31 @@
 - [ ][P0] Implement a way to validate a listing is owned by the person who is listing it
 - [ ][P0] Implement a way to schedule a viewing 
 - [ ][P0] Decide on if we want to enlist realtors as part of the service?
-- [ ][P0] Implement a way for a seller to recieve multiple offers from multiple people and for them to decide on the offer they want
+- [x][P0] Implement a way for a seller to recieve multiple offers from multiple people and for them to decide on the offer they want
 - [ ][P0] Design a way to verify the buyer is able to buy the property, also do we need to conect with lenders?
 - [ ][P0] Come up with ways we can keep the users on the platform (act as escrow, verification, etc.)
 - [ ][P0] Deicde on pricing
 - [ ][P0] If an offer is selected, there needs to be a binding contract else a penalty and the sale needs to happen within a certain amount of time
 - [ ][P0] Are we only going to allow buyers who reside in the same country?
 - [ ][P0] Do we need another repo to handle different service logic? or use this one?
-- [ ][P0] Make sure we are only displaying listings that are available and not sold or removed
+- [x][P0] Make sure we are only displaying listings that are available and not sold or removed
 - [ ][P1] Implement import logic from real estate listing services
-- [ ][P0] Implement buying functionality where a buyer can submit an offer that is the price listed or more
-- [ ][P0] If a seller has accepted a buyer's offer the listing should be in a PROCESSING state where it is not displayed during this time
+- [x][P0] Implement buying functionality where a buyer can submit an offer that is the price listed or more
+- [x][P0] If a seller has accepted a buyer's offer the listing should be in a PROCESSING state where it is not displayed during this time
 - [ ][P0] Our service has to integrate or devise some kind of payment service to facilitate the transaction
 - [ ][P0] Implement document signing 
 - [ ][P0] Implement when confirming the deal, move in date, transfer date, and any other dates needed. Both parties will need to agree to the conditions
 - [ ][P0] Define the template for conditions and sale 
 
 # Context
+
+## Implement offer flow API 10-05-2026
+- Created `internal/models/offer.go`: `Offer` model with `OfferStatus` (pending/accepted/rejected/withdrawn), GORM uuid primary key, index on `property_id`, associations to `Property` and `User`
+- Created `internal/handlers/offers.go`: `OfferHandler` with 6 endpoints — `SubmitOffer` (POST, buyer only, property must be active, amount > 0), `ListOffers` (GET, seller only), `AcceptOffer` (PUT, DB transaction: sets offer accepted + rejects others + sets property to pending), `RejectOffer` (PUT), `WithdrawOffer` (DELETE), `ListMyOffers` (GET /users/me/offers)
+- Created `internal/handlers/offers_test.go`: 9 unit tests covering happy paths, auth checks (403 for wrong user), conflict states (non-active property, already-accepted offer), invalid amount, wrong buyer on withdraw
+- Updated `internal/database/database.go`: added `&models.Offer{}` to AutoMigrate
+- Updated `cmd/api/main.go`: registered all 6 offer routes; `GET /users/me/offers` added under users group
+- All tests pass (`go test ./...`)
 
 ## Implement presigned S3 upload endpoint 03-05-2026
 - Added `github.com/aws/aws-sdk-go-v2/config`, `github.com/aws/aws-sdk-go-v2/service/s3`, and `github.com/google/uuid` dependencies to `go.mod`
