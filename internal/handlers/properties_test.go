@@ -408,6 +408,58 @@ func TestUpdateProperty_Success(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
+func TestUpdateProperty_ReplacesImages(t *testing.T) {
+	t.Parallel()
+	gormDB, mock := newTestDB(t)
+	h := handlers.NewPropertyHandler(gormDB)
+	sellerID := "seller-1"
+	r := setupPropertyRouter(h, sellerID)
+
+	// Fetch property
+	mock.ExpectQuery(`SELECT .* FROM "properties"`).
+		WithArgs("prop-1", 1).
+		WillReturnRows(sqlmock.NewRows(propertyColumns()).
+			AddRow(propertyRow("prop-1", sellerID)...))
+
+	// Image replacement: delete existing, insert new (one transaction)
+	mock.ExpectBegin()
+	mock.ExpectExec(`DELETE FROM "property_images"`).
+		WithArgs("prop-1").
+		WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectQuery(`INSERT INTO "property_images"`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("img-1"))
+	mock.ExpectCommit()
+
+	// Reload with associations (GORM adds the populated PK as an extra condition)
+	mock.ExpectQuery(`SELECT .* FROM "properties"`).
+		WithArgs("prop-1", "prop-1", 1).
+		WillReturnRows(sqlmock.NewRows(propertyColumns()).
+			AddRow(propertyRow("prop-1", sellerID)...))
+	mock.ExpectQuery(`SELECT .* FROM "property_images"`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "property_id", "url", "order", "created_at"}).
+			AddRow("img-1", "prop-1", "http://cdn/new.jpg", 0, time.Now()))
+	mock.ExpectQuery(`SELECT .* FROM "users"`).
+		WillReturnRows(sellerRows())
+
+	// images only — no scalar field updates, so no UPDATE "properties" statement
+	body, _ := json.Marshal(map[string]interface{}{
+		"images": []map[string]interface{}{{"url": "http://cdn/new.jpg", "order": 0}},
+	})
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPut, "/properties/prop-1", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	data := resp["data"].(map[string]interface{})
+	images := data["images"].([]interface{})
+	require.Len(t, images, 1)
+	assert.Equal(t, "http://cdn/new.jpg", images[0].(map[string]interface{})["url"])
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestUpdateProperty_Forbidden(t *testing.T) {
 	t.Parallel()
 	gormDB, mock := newTestDB(t)

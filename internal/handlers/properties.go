@@ -59,6 +59,11 @@ type updatePropertyRequest struct {
 	Longitude   *float64              `json:"longitude"`
 	Source      *models.ListingSource `json:"source"`
 	Status      *models.PropertyStatus `json:"status"`
+	// When present, replaces the property's full image set (nil = leave unchanged)
+	Images      *[]struct {
+		URL   string `json:"url"`
+		Order int    `json:"order"`
+	} `json:"images"`
 }
 
 // GET /api/v1/properties
@@ -321,6 +326,29 @@ func (h *PropertyHandler) UpdateProperty(c *gin.Context) {
 	if len(updates) > 0 {
 		if err := h.db.Model(&property).Updates(updates).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update property", "code": "INTERNAL_ERROR"})
+			return
+		}
+	}
+
+	// Replace the image set when provided (delete-then-insert in one transaction)
+	if req.Images != nil {
+		newImages := make([]models.PropertyImage, 0, len(*req.Images))
+		for _, img := range *req.Images {
+			if img.URL != "" {
+				newImages = append(newImages, models.PropertyImage{PropertyID: id, URL: img.URL, Order: img.Order})
+			}
+		}
+		err := h.db.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Where("property_id = ?", id).Delete(&models.PropertyImage{}).Error; err != nil {
+				return err
+			}
+			if len(newImages) == 0 {
+				return nil
+			}
+			return tx.Create(&newImages).Error
+		})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update property images", "code": "INTERNAL_ERROR"})
 			return
 		}
 	}
