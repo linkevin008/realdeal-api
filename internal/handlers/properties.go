@@ -45,23 +45,18 @@ type createPropertyRequest struct {
 	} `json:"images"`
 }
 
-// countryCodePattern matches ISO 3166-1 alpha-2 codes. The client sends codes
-// from the platform's ISO region list; the server enforces the shape so
-// free-text garbage ("USA", "United States") can't reach the database.
-var countryCodePattern = regexp.MustCompile(`^[A-Z]{2}$`)
-
-// Postal formats are validated for countries we know; everything else just
-// requires a non-empty value.
+// Postal formats per supported country (see SupportedCountries in countries.go).
 var postalPatterns = map[string]*regexp.Regexp{
 	"US": regexp.MustCompile(`^\d{5}(-\d{4})?$`),
 	"CA": regexp.MustCompile(`^[A-Za-z]\d[A-Za-z][ -]?\d[A-Za-z]\d$`),
 }
 
 // validateAddressFields returns a human-readable error for invalid
-// country/postal combinations, or "" when valid.
+// country/postal combinations, or "" when valid. Listings may only be created
+// in supported countries — the same list the client's dropdown is built from.
 func validateAddressFields(country, postalCode string) string {
-	if !countryCodePattern.MatchString(country) {
-		return "country must be an ISO 3166-1 alpha-2 code (e.g. US, CA)"
+	if !supportedCountrySet[country] {
+		return fmt.Sprintf("country %q is not supported yet — supported: %s", country, strings.Join(SupportedCountries, ", "))
 	}
 	if pattern, ok := postalPatterns[country]; ok && !pattern.MatchString(postalCode) {
 		return fmt.Sprintf("invalid postal code for country %s", country)

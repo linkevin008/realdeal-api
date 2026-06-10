@@ -388,9 +388,9 @@ func TestCreateProperty_InvalidInput(t *testing.T) {
 	}
 }
 
-// International addresses pass with any non-empty postal code, and explicit
-// zero bedrooms/bathrooms (e.g. land) are valid as long as the fields are sent.
-func TestCreateProperty_InternationalAndZeroBedrooms(t *testing.T) {
+// Explicit zero bedrooms/bathrooms (e.g. land) are valid as long as the
+// fields are sent, and CA postal codes pass their country's format.
+func TestCreateProperty_ZeroBedroomsCA(t *testing.T) {
 	t.Parallel()
 	gormDB, mock := newTestDB(t)
 	h := handlers.NewPropertyHandler(gormDB)
@@ -409,8 +409,8 @@ func TestCreateProperty_InternationalAndZeroBedrooms(t *testing.T) {
 		WillReturnRows(sellerRows())
 
 	body, _ := json.Marshal(map[string]interface{}{
-		"street": "12 Rue de Rivoli", "city": "Paris", "state": "Ile-de-France",
-		"postal_code": "75004", "country": "FR",
+		"street": "88 Scott St", "city": "Toronto", "state": "ON",
+		"postal_code": "M5E 0A9", "country": "CA",
 		"price": 900000.0, "property_type": "land",
 		"bedrooms": 0, "bathrooms": 0.0, "square_feet": 5000,
 	})
@@ -420,6 +420,39 @@ func TestCreateProperty_InternationalAndZeroBedrooms(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusCreated, w.Code)
+}
+
+// The country dropdown's source of truth: a public endpoint listing the
+// countries listings may be created in.
+func TestSupportedCountries(t *testing.T) {
+	t.Parallel()
+	r := gin.New()
+	r.GET("/config/countries", handlers.SupportedCountriesHandler)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/config/countries", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string][]string
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, []string{"US", "CA"}, resp["data"])
+
+	// An unsupported (but real) country is rejected at create time
+	gormDB, _ := newTestDB(t)
+	h := handlers.NewPropertyHandler(gormDB)
+	pr := setupPropertyRouter(h, "seller-1")
+	body, _ := json.Marshal(map[string]interface{}{
+		"street": "12 Rue de Rivoli", "city": "Paris", "state": "Ile-de-France",
+		"postal_code": "75004", "country": "FR",
+		"price": 900000.0, "property_type": "house",
+		"bedrooms": 2, "bathrooms": 1.0, "square_feet": 900,
+	})
+	cw := httptest.NewRecorder()
+	creq, _ := http.NewRequest(http.MethodPost, "/properties", bytes.NewBuffer(body))
+	creq.Header.Set("Content-Type", "application/json")
+	pr.ServeHTTP(cw, creq)
+	assert.Equal(t, http.StatusBadRequest, cw.Code)
 }
 
 func TestCreateProperty_WithImages(t *testing.T) {

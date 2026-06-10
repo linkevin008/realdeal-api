@@ -67,6 +67,9 @@ func main() {
 	// API v1 group
 	v1 := r.Group("/api/v1")
 
+	// Public config — single source of truth for the client's country dropdown
+	v1.GET("/config/countries", handlers.SupportedCountriesHandler)
+
 	// Auth routes (no auth required)
 	auth := v1.Group("/auth")
 	{
