@@ -30,6 +30,11 @@
 
 # Context
 
+## Image replacement on property update 10-06-2026
+- `PUT /api/v1/properties/:id` accepts an optional `images: [{url, order}]` array — when present it replaces the property's full image set (delete-then-insert in one transaction); omitted/nil leaves images untouched
+- Closes the gap where images could only be set at creation; the presign upload flow now works end-to-end for existing listings: presign → PUT bytes to S3/LocalStack → attach via property update → returned by both core GET and lookup search → rendered by the iOS browse card (LocalStack GetObject 200 observed from the simulator)
+- Search filter parity (earlier same day, commit 00b8fdb): lookup search gained seller_id, source, and lat/lon/radius_miles (Haversine) filters so the iOS app could adopt /api/v1/search without losing capability
+
 ## Local AWS-modeled multi-service platform + lookup service 10-06-2026
 - Restructured to a multi-binary monorepo: `cmd/api` renamed to `cmd/core`; new `cmd/lookup`; shared `internal/` packages unchanged
 - Added parameterized `Dockerfile` (ARG SERVICE builds `cmd/${SERVICE}`; golang:1.26-alpine builder → distroless/static runtime) — one Dockerfile, one image per service, same image locally and on ECS later
