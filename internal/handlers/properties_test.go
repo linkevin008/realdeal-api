@@ -46,7 +46,7 @@ func setupPropertyRouter(h *handlers.PropertyHandler, callerID string) *gin.Engi
 
 func propertyColumns() []string {
 	return []string{
-		"id", "street", "city", "state", "zip_code", "country",
+		"id", "street", "city", "state", "postal_code", "country",
 		"price", "type", "description", "bedrooms", "bathrooms",
 		"square_feet", "lot_size", "year_built", "latitude", "longitude",
 		"source", "seller_id", "status", "created_at", "updated_at",
@@ -235,6 +235,10 @@ func TestCreateProperty_Success(t *testing.T) {
 		"country":       "US",
 		"price":         250000,
 		"property_type": "house",
+		"postal_code":   "62701",
+		"bedrooms":      3,
+		"bathrooms":     2.0,
+		"square_feet":   1800,
 	})
 
 	w := httptest.NewRecorder()
@@ -264,6 +268,10 @@ func TestCreateProperty_Unauthenticated(t *testing.T) {
 		"country":       "US",
 		"price":         250000,
 		"property_type": "house",
+		"postal_code":   "62701",
+		"bedrooms":      3,
+		"bathrooms":     2.0,
+		"square_feet":   1800,
 	})
 
 	w := httptest.NewRecorder()
@@ -299,8 +307,65 @@ func TestCreateProperty_InvalidInput(t *testing.T) {
 			name: "invalid coordinates (latitude out of range)",
 			body: map[string]interface{}{
 				"street": "123 Main St", "city": "Springfield", "state": "IL",
-				"country": "US", "price": 250000, "property_type": "house",
+				"postal_code": "62701", "country": "US", "price": 250000, "property_type": "house",
+				"bedrooms": 3, "bathrooms": 2.0, "square_feet": 1800,
 				"latitude": 200.0, "longitude": -89.65,
+			},
+		},
+		{
+			name: "full country name rejected",
+			body: map[string]interface{}{
+				"street": "123 Main St", "city": "Springfield", "state": "IL",
+				"postal_code": "62701", "country": "United States", "price": 250000, "property_type": "house",
+				"bedrooms": 3, "bathrooms": 2.0, "square_feet": 1800,
+			},
+		},
+		{
+			name: "alpha-3 country code rejected",
+			body: map[string]interface{}{
+				"street": "123 Main St", "city": "Springfield", "state": "IL",
+				"postal_code": "62701", "country": "USA", "price": 250000, "property_type": "house",
+				"bedrooms": 3, "bathrooms": 2.0, "square_feet": 1800,
+			},
+		},
+		{
+			name: "US postal must be ZIP format",
+			body: map[string]interface{}{
+				"street": "123 Main St", "city": "Springfield", "state": "IL",
+				"postal_code": "A1A 1A1", "country": "US", "price": 250000, "property_type": "house",
+				"bedrooms": 3, "bathrooms": 2.0, "square_feet": 1800,
+			},
+		},
+		{
+			name: "CA postal must be postal format",
+			body: map[string]interface{}{
+				"street": "123 Main St", "city": "Toronto", "state": "ON",
+				"postal_code": "90210", "country": "CA", "price": 250000, "property_type": "house",
+				"bedrooms": 3, "bathrooms": 2.0, "square_feet": 1800,
+			},
+		},
+		{
+			name: "missing postal code",
+			body: map[string]interface{}{
+				"street": "123 Main St", "city": "Springfield", "state": "IL",
+				"country": "US", "price": 250000, "property_type": "house",
+				"bedrooms": 3, "bathrooms": 2.0, "square_feet": 1800,
+			},
+		},
+		{
+			name: "missing specifications (bedrooms)",
+			body: map[string]interface{}{
+				"street": "123 Main St", "city": "Springfield", "state": "IL",
+				"postal_code": "62701", "country": "US", "price": 250000, "property_type": "house",
+				"bathrooms": 2.0, "square_feet": 1800,
+			},
+		},
+		{
+			name: "zero square feet rejected",
+			body: map[string]interface{}{
+				"street": "123 Main St", "city": "Springfield", "state": "IL",
+				"postal_code": "62701", "country": "US", "price": 250000, "property_type": "house",
+				"bedrooms": 3, "bathrooms": 2.0, "square_feet": 0,
 			},
 		},
 	}
@@ -321,6 +386,40 @@ func TestCreateProperty_InvalidInput(t *testing.T) {
 			assert.Equal(t, http.StatusBadRequest, w.Code)
 		})
 	}
+}
+
+// International addresses pass with any non-empty postal code, and explicit
+// zero bedrooms/bathrooms (e.g. land) are valid as long as the fields are sent.
+func TestCreateProperty_InternationalAndZeroBedrooms(t *testing.T) {
+	t.Parallel()
+	gormDB, mock := newTestDB(t)
+	h := handlers.NewPropertyHandler(gormDB)
+	r := setupPropertyRouter(h, "seller-1")
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`INSERT INTO "properties"`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).
+			AddRow("new-prop-id", time.Now(), time.Now()))
+	mock.ExpectCommit()
+	mock.ExpectQuery(`SELECT .* FROM "properties"`).
+		WillReturnRows(sqlmock.NewRows(propertyColumns()).AddRow(propertyRow("new-prop-id", "seller-1")...))
+	mock.ExpectQuery(`SELECT .* FROM "property_images"`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	mock.ExpectQuery(`SELECT .* FROM "users"`).
+		WillReturnRows(sellerRows())
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"street": "12 Rue de Rivoli", "city": "Paris", "state": "Ile-de-France",
+		"postal_code": "75004", "country": "FR",
+		"price": 900000.0, "property_type": "land",
+		"bedrooms": 0, "bathrooms": 0.0, "square_feet": 5000,
+	})
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPost, "/properties", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
 }
 
 func TestCreateProperty_WithImages(t *testing.T) {
@@ -353,6 +452,10 @@ func TestCreateProperty_WithImages(t *testing.T) {
 		"country":       "US",
 		"price":         250000,
 		"property_type": "house",
+		"postal_code":   "62701",
+		"bedrooms":      3,
+		"bathrooms":     2.0,
+		"square_feet":   1800,
 		"images": []map[string]interface{}{
 			{"url": "https://example.com/photo1.jpg", "order": 0},
 			{"url": "https://example.com/photo2.jpg", "order": 1},
@@ -550,7 +653,7 @@ func TestUpdateProperty_AllFields(t *testing.T) {
 		"street":     "456 Oak Ave",
 		"state":      "CA",
 		"country":    "CA",
-		"zip_code":   "90210",
+		"postal_code": "90210",
 		"type":       "condo",
 		"lot_size":   5000.0,
 		"year_built": 2005,

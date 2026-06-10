@@ -36,7 +36,7 @@ type Property struct {
 	Street      string         `json:"street" gorm:"not null"`
 	City        string         `json:"city" gorm:"not null"`
 	State       string         `json:"state" gorm:"not null"`
-	ZipCode     string         `json:"zip_code"`
+	PostalCode  string         `json:"postal_code" gorm:"column:postal_code"`
 	Country     string         `json:"country" gorm:"not null"`
 	Price       float64        `json:"price" gorm:"not null"`
 	Type        PropertyType   `json:"property_type" gorm:"not null"`

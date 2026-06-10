@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -22,14 +24,16 @@ type createPropertyRequest struct {
 	Street      string               `json:"street" binding:"required"`
 	City        string               `json:"city" binding:"required"`
 	State       string               `json:"state" binding:"required"`
-	ZipCode     string               `json:"zip_code"`
+	PostalCode  string               `json:"postal_code" binding:"required"`
 	Country     string               `json:"country" binding:"required"`
 	Price       float64              `json:"price" binding:"required,gt=0"`
 	Type        models.PropertyType  `json:"property_type" binding:"required"`
 	Description string               `json:"description"`
-	Bedrooms    *int                 `json:"bedrooms"`
-	Bathrooms   *float64             `json:"bathrooms"`
-	SquareFeet  *int                 `json:"square_feet"`
+	// Specifications are required on a listing; pointers so an explicit 0
+	// (e.g. land with no bedrooms) still passes "required"
+	Bedrooms    *int                 `json:"bedrooms" binding:"required,gte=0"`
+	Bathrooms   *float64             `json:"bathrooms" binding:"required,gte=0"`
+	SquareFeet  *int                 `json:"square_feet" binding:"required,gt=0"`
 	LotSize     *float64             `json:"lot_size"`
 	YearBuilt   *int                 `json:"year_built"`
 	Latitude    float64              `json:"latitude"`
@@ -41,11 +45,35 @@ type createPropertyRequest struct {
 	} `json:"images"`
 }
 
+// countryCodePattern matches ISO 3166-1 alpha-2 codes. The client sends codes
+// from the platform's ISO region list; the server enforces the shape so
+// free-text garbage ("USA", "United States") can't reach the database.
+var countryCodePattern = regexp.MustCompile(`^[A-Z]{2}$`)
+
+// Postal formats are validated for countries we know; everything else just
+// requires a non-empty value.
+var postalPatterns = map[string]*regexp.Regexp{
+	"US": regexp.MustCompile(`^\d{5}(-\d{4})?$`),
+	"CA": regexp.MustCompile(`^[A-Za-z]\d[A-Za-z][ -]?\d[A-Za-z]\d$`),
+}
+
+// validateAddressFields returns a human-readable error for invalid
+// country/postal combinations, or "" when valid.
+func validateAddressFields(country, postalCode string) string {
+	if !countryCodePattern.MatchString(country) {
+		return "country must be an ISO 3166-1 alpha-2 code (e.g. US, CA)"
+	}
+	if pattern, ok := postalPatterns[country]; ok && !pattern.MatchString(postalCode) {
+		return fmt.Sprintf("invalid postal code for country %s", country)
+	}
+	return ""
+}
+
 type updatePropertyRequest struct {
 	Street      *string               `json:"street"`
 	City        *string               `json:"city"`
 	State       *string               `json:"state"`
-	ZipCode     *string               `json:"zip_code"`
+	PostalCode  *string               `json:"postal_code"`
 	Country     *string               `json:"country"`
 	Price       *float64              `json:"price"`
 	Type        *models.PropertyType  `json:"property_type"`
@@ -201,6 +229,11 @@ func (h *PropertyHandler) CreateProperty(c *gin.Context) {
 		return
 	}
 
+	if msg := validateAddressFields(req.Country, req.PostalCode); msg != "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": msg, "code": "VALIDATION_ERROR"})
+		return
+	}
+
 	source := req.Source
 	if source == "" {
 		source = models.ListingSourceUserGenerated
@@ -210,7 +243,7 @@ func (h *PropertyHandler) CreateProperty(c *gin.Context) {
 		Street:      req.Street,
 		City:        req.City,
 		State:       req.State,
-		ZipCode:     req.ZipCode,
+		PostalCode:  req.PostalCode,
 		Country:     req.Country,
 		Price:       req.Price,
 		Type:        req.Type,
@@ -280,8 +313,8 @@ func (h *PropertyHandler) UpdateProperty(c *gin.Context) {
 	if req.State != nil && *req.State != "" {
 		updates["state"] = *req.State
 	}
-	if req.ZipCode != nil {
-		updates["zip_code"] = *req.ZipCode
+	if req.PostalCode != nil {
+		updates["postal_code"] = *req.PostalCode
 	}
 	if req.Country != nil && *req.Country != "" {
 		updates["country"] = *req.Country
