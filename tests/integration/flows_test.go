@@ -39,22 +39,30 @@ func TestAuthFlow(t *testing.T) {
 	}
 }
 
-// createListing creates an active listing with a marker in the street so search
-// queries can isolate this test run's data.
+// createListing creates an active listing carrying a marker in its description
+// so search queries can isolate this test run's data (the address stays
+// realistic — markers in the street made dev/staging browse screens ugly).
+// The listing is soft-deleted on test cleanup so persistent databases (dev
+// volume, RDS when run as a smoke test) don't accumulate visible test data.
 func createListing(t *testing.T, seller *client, marker string, price float64, beds int) string {
 	t.Helper()
 	resp := seller.do("POST", "/api/v1/properties", map[string]interface{}{
-		"street":        fmt.Sprintf("%s %.0f Maple St", marker, price),
+		"street":        fmt.Sprintf("%d Maple St", int(price/1000)),
 		"city":          "Springfield",
 		"state":         "IL",
 		"country":       "US",
 		"price":         price,
 		"property_type": "house",
 		"bedrooms":      beds,
+		"description":   "integration test listing " + marker,
 		"latitude":      39.78,
 		"longitude":     -89.65,
 	}).mustStatus(t, http.StatusCreated)
-	return resp.data(t)["id"].(string)
+	id := resp.data(t)["id"].(string)
+	t.Cleanup(func() {
+		seller.do("DELETE", "/api/v1/properties/"+id, nil)
+	})
+	return id
 }
 
 // searchTotal queries the lookup service through the gateway and returns the
