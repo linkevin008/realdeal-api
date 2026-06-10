@@ -79,6 +79,25 @@ func TestSearchProperties_FiltersApplied(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestSearchProperties_SellerSourceAndGeoFilters(t *testing.T) {
+	t.Parallel()
+	gormDB, mock := newTestDB(t)
+	h := handlers.NewSearchHandler(gormDB)
+	r := setupSearchRouter(h)
+
+	// status, source IN, seller_id, haversine (lat, lon, lat, radiusKm)
+	mock.ExpectQuery(`SELECT count\(\*\) FROM "properties" WHERE status = .* source IN .* seller_id = .* acos`).
+		WithArgs("active", "mls", "user_generated", "seller-1", 39.78, -89.65, 39.78, 10*1.60934).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectQuery(`SELECT .* FROM "properties"`).
+		WillReturnRows(sqlmock.NewRows(propertyColumns()))
+
+	w := searchRequest(t, r, "/search/properties?source=mls,user_generated&seller_id=seller-1&lat=39.78&lon=-89.65&radius_miles=10")
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestSearchProperties_SortPriceAsc(t *testing.T) {
 	t.Parallel()
 	gormDB, mock := newTestDB(t)

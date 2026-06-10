@@ -79,11 +79,38 @@ func (h *SearchHandler) SearchProperties(c *gin.Context) {
 		query = query.Where("type IN ?", strings.Split(t, ","))
 	}
 
+	if s := c.Query("source"); s != "" {
+		query = query.Where("source IN ?", strings.Split(s, ","))
+	}
+
+	if sellerID := c.Query("seller_id"); sellerID != "" {
+		query = query.Where("seller_id = ?", sellerID)
+	}
+
 	if city := c.Query("city"); city != "" {
 		query = query.Where("city ILIKE ?", city)
 	}
 	if state := c.Query("state"); state != "" {
 		query = query.Where("state ILIKE ?", state)
+	}
+
+	// Location radius (Haversine) — same semantics as core's ListProperties
+	latStr := c.Query("lat")
+	lonStr := c.Query("lon")
+	radiusStr := c.Query("radius_miles")
+	if latStr != "" && lonStr != "" && radiusStr != "" {
+		lat, latErr := strconv.ParseFloat(latStr, 64)
+		lon, lonErr := strconv.ParseFloat(lonStr, 64)
+		radiusMiles, radErr := strconv.ParseFloat(radiusStr, 64)
+		if latErr == nil && lonErr == nil && radErr == nil {
+			radiusKm := radiusMiles * 1.60934
+			haversine := `(6371 * acos(
+				cos(radians(?)) * cos(radians(latitude)) *
+				cos(radians(longitude) - radians(?)) +
+				sin(radians(?)) * sin(radians(latitude))
+			)) <= ?`
+			query = query.Where(haversine, lat, lon, lat, radiusKm)
+		}
 	}
 
 	order, ok := validSearchSorts[c.DefaultQuery("sort", "newest")]
