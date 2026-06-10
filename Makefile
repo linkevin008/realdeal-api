@@ -1,7 +1,7 @@
 SIM_ID = 256EB576-7745-4D4C-A01E-97AA0B700BA6
 IOS_PROJECT = ../realdeal-ios/RealDeal.xcodeproj
 
-.PHONY: dev infra up down restart build docker-build test test-cover test-integration smoke sim start help
+.PHONY: dev infra up down restart build docker-build push test test-cover test-integration smoke sim start help
 
 ## Fast iteration: infra containers + core via go run
 dev: infra
@@ -36,6 +36,22 @@ build:
 docker-build:
 	docker build --build-arg SERVICE=core -t realdeal-core .
 	docker build --build-arg SERVICE=lookup -t realdeal-lookup .
+
+## Build linux/amd64 images (Fargate architecture), tag with git SHA, push to ECR
+## Requires AWS credentials (aws sso login) and the realdeal-ecr stack deployed.
+AWS_REGION_DEPLOY = us-west-2
+push:
+	$(eval ACCOUNT := $(shell aws sts get-caller-identity --query Account --output text))
+	$(eval TAG := $(shell git rev-parse --short HEAD))
+	$(eval REGISTRY := $(ACCOUNT).dkr.ecr.$(AWS_REGION_DEPLOY).amazonaws.com)
+	aws ecr get-login-password --region $(AWS_REGION_DEPLOY) | docker login --username AWS --password-stdin $(REGISTRY)
+	docker build --platform linux/amd64 --build-arg SERVICE=core -t $(REGISTRY)/realdeal-core:$(TAG) .
+	docker build --platform linux/amd64 --build-arg SERVICE=lookup -t $(REGISTRY)/realdeal-lookup:$(TAG) .
+	docker push $(REGISTRY)/realdeal-core:$(TAG)
+	docker push $(REGISTRY)/realdeal-lookup:$(TAG)
+	@echo ""
+	@echo "Pushed. Deploy with:"
+	@echo "  make -C ../realdeal-infra deploy-compute CORE_IMAGE_URI=$(REGISTRY)/realdeal-core:$(TAG) LOOKUP_IMAGE_URI=$(REGISTRY)/realdeal-lookup:$(TAG) JWT_SECRET=... CF_BASE_URL=..."
 
 ## Run all unit tests
 test:
