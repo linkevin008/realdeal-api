@@ -39,7 +39,7 @@ func Load() (*Config, error) {
 		DBPort:     getEnv("DB_PORT", "5432"),
 		DBUser:     getEnv("DB_USER", "realdeal"),
 		DBPassword: getEnv("DB_PASSWORD", ""),
-		DBName:     getEnv("DB_NAME", "realdeal"),
+		DBName:     getEnv("DB_NAME", "realdeal_core"),
 		DBSSLMode:  getEnv("DB_SSL_MODE", "disable"),
 		JWTSecret:  getEnv("JWT_SECRET", ""),
 

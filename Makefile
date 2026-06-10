@@ -1,39 +1,60 @@
 SIM_ID = 256EB576-7745-4D4C-A01E-97AA0B700BA6
 IOS_PROJECT = ../realdeal-ios/RealDeal.xcodeproj
 
-.PHONY: dev up down restart build test sim start help
+.PHONY: dev infra up down restart build docker-build test test-cover test-integration smoke sim start help
 
-## Start everything: Postgres, API server, and iOS simulator
-start: up sim
-	go run ./cmd/api
+## Fast iteration: infra containers + core via go run
+dev: infra
+	go run ./cmd/core
 
-## Start Postgres and run the API server
-dev: up
-	go run ./cmd/api
+## Start infra containers only (postgres + localstack)
+infra:
+	docker compose up -d --wait postgres localstack
 
-## Start Postgres in the background (wait for healthy)
+## Full containerized stack — gateway on :8080, same images that ship to ECS
 up:
-	docker compose up -d --wait
+	docker compose --profile full up -d --build
+	@echo "Waiting for gateway health..."
+	@for i in $$(seq 1 60); do \
+		curl -sf http://localhost:8080/health >/dev/null 2>&1 && echo "Stack is up: http://localhost:8080" && exit 0; \
+		sleep 1; \
+	done; echo "ERROR: gateway did not become healthy"; docker compose --profile full logs --tail 20; exit 1
 
-## Stop Postgres
+## Stop everything (all profiles)
 down:
-	docker compose down
+	docker compose --profile full down
 
-## Restart Postgres and the API server
-restart: down dev
+## Restart the full stack
+restart: down up
 
-## Build the binary
+## Build all service binaries
 build:
-	go build -o bin/api ./cmd/api
+	go build -o bin/core ./cmd/core
+	go build -o bin/lookup ./cmd/lookup
 
-## Run all tests
+## Build all service images (one per cmd/<service>)
+docker-build:
+	docker build --build-arg SERVICE=core -t realdeal-core .
+	docker build --build-arg SERVICE=lookup -t realdeal-lookup .
+
+## Run all unit tests
 test:
 	go test -count=1 -parallel 8 ./...
 
-## Run all tests with coverage report
+## Run all unit tests with coverage report
 test-cover:
 	go test -count=1 -parallel 8 -coverprofile=coverage.out ./...
 	go tool cover -html=coverage.out -o coverage.html
+
+## Bring up the full stack and run HTTP integration tests through the gateway
+test-integration: up
+	@go test -count=1 -tags=integration ./tests/integration/...; status=$$?; \
+	docker compose --profile full down; \
+	exit $$status
+
+## Run integration tests against an already-running deployment (set API_BASE_URL)
+smoke:
+	go test -count=1 -tags=integration ./tests/integration/...
 
 ## Boot simulator, build and launch the iOS app
 sim:
@@ -48,7 +69,10 @@ sim:
 	xcrun simctl install $(SIM_ID) /tmp/realdeal-build/Build/Products/Debug-iphonesimulator/RealDeal.app
 	xcrun simctl launch $(SIM_ID) com.kevil.RealDeal
 
+## Start everything: full stack + iOS simulator
+start: up sim
+
 ## Show available targets
 help:
 	@echo "Available targets:"
-	@grep -E '^(##|[a-z]+:)' Makefile | awk '/^## /{desc=substr($$0,4)} /^[a-z]+:/{printf "  make %-12s %s\n", substr($$1,1,length($$1)-1), desc}'
+	@grep -E '^(##|[a-z-]+:)' Makefile | awk '/^## /{desc=substr($$0,4)} /^[a-z-]+:/{printf "  make %-18s %s\n", substr($$1,1,length($$1)-1), desc}'

@@ -1,20 +1,116 @@
+# Local replica of the AWS topology — each service here maps to a real AWS
+# resource (noted per service). Two ways to run it:
+#
+#   docker compose up -d                  # infra only (postgres + localstack) — pair with `go run ./cmd/<service>`
+#   docker compose --profile full up -d   # everything containerized, gateway on :8080 — same images that ship to ECS
+#
 services:
+  # ≙ RDS PostgreSQL — one instance; core owns realdeal_core, lookup reads it
+  # via the lookup_ro user (≙ read-only RDS user / read replica later).
   postgres:
     image: postgres:16-alpine
     container_name: realdeal-db
     environment:
       POSTGRES_USER: realdeal
       POSTGRES_PASSWORD: realdeal_dev
-      POSTGRES_DB: realdeal
+      POSTGRES_DB: realdeal_core
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./scripts/postgres-init.sql:/docker-entrypoint-initdb.d/10-init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U realdeal"]
+      test: ["CMD-SHELL", "pg_isready -U realdeal -d realdeal_core"]
       interval: 5s
       timeout: 5s
       retries: 5
+
+  # ≙ S3 + SecretsManager — same SDK code path as prod; only AWS_ENDPOINT_URL differs.
+  localstack:
+    image: localstack/localstack:4
+    container_name: realdeal-localstack
+    environment:
+      SERVICES: s3,secretsmanager
+    ports:
+      - "4566:4566"
+    volumes:
+      - ./scripts/localstack-init.sh:/etc/localstack/init/ready.d/init.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ≙ ECS service "core" — auth, users, properties, offers, favorites, upload presign.
+  core:
+    build:
+      context: .
+      args:
+        SERVICE: core
+    container_name: realdeal-core
+    profiles: ["full"]
+    environment:
+      PORT: "8080"
+      ENV: development
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: realdeal
+      DB_PASSWORD: realdeal_dev
+      DB_NAME: realdeal_core
+      DB_SSL_MODE: disable
+      JWT_SECRET: ${JWT_SECRET:-local_dev_jwt_secret}
+      AWS_REGION: us-west-2
+      # Presigning is offline computation, so the endpoint only needs to be
+      # reachable by the CLIENT that PUTs to the URL (host / iOS simulator) —
+      # localhost:4566 is LocalStack's published port. Unset in prod.
+      AWS_ENDPOINT_URL: http://localhost:4566
+      AWS_ACCESS_KEY_ID: test     # LocalStack accepts any credentials; prod uses the ECS task role
+      AWS_SECRET_ACCESS_KEY: test
+      S3_BUCKET: realdeal-media-local
+      CLOUDFRONT_BASE_URL: http://localhost:4566/realdeal-media-local
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+
+  # ≙ ECS service "lookup" — read-only listing search over core's data.
+  lookup:
+    build:
+      context: .
+      args:
+        SERVICE: lookup
+    container_name: realdeal-lookup
+    profiles: ["full"]
+    environment:
+      PORT: "8080"
+      ENV: development
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: lookup_ro
+      DB_PASSWORD: lookup_ro_dev
+      DB_NAME: realdeal_core
+      DB_SSL_MODE: disable
+      JWT_SECRET: ${JWT_SECRET:-local_dev_jwt_secret}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      core:
+        # core runs AutoMigrate; lookup needs the schema to exist
+        condition: service_started
+
+  # ≙ ALB — single public entry point, path-based routing (see gateway/nginx.conf).
+  gateway:
+    image: nginx:1.27-alpine
+    container_name: realdeal-gateway
+    profiles: ["full"]
+    ports:
+      - "8080:80"
+    volumes:
+      - ./gateway/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - core
+      - lookup
 
 volumes:
   postgres_data:

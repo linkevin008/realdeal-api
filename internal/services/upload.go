@@ -67,7 +67,14 @@ func NewUploadService(cfg *config.Config) (*UploadService, error) {
 		return nil, fmt.Errorf("failed to load AWS config: %w", err)
 	}
 
-	s3Client := s3.NewFromConfig(awsCfg)
+	s3Client := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
+		// Custom endpoints (AWS_ENDPOINT_URL, e.g. LocalStack) need path-style
+		// addressing — virtual-host style would put the bucket in the hostname,
+		// which custom endpoints can't resolve. Unset in prod → virtual-host style.
+		if awsCfg.BaseEndpoint != nil {
+			o.UsePathStyle = true
+		}
+	})
 	presignClient := s3.NewPresignClient(s3Client)
 
 	return &UploadService{

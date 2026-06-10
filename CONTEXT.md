@@ -24,7 +24,24 @@
 - [ ][P0] Implement when confirming the deal, move in date, transfer date, and any other dates needed. Both parties will need to agree to the conditions
 - [ ][P0] Define the template for conditions and sale 
 
+- [x][P0] Restructure into a multi-service monorepo with a local AWS-modeled environment (nginx gateway ≙ ALB, container per service ≙ ECS, LocalStack ≙ S3/SecretsManager)
+- [x][P0] Implement lookup service — listing search & browse (read-only over core's data)
+- [x][P0] HTTP integration test suite that runs locally through the gateway and later against the real ALB via API_BASE_URL
+
 # Context
+
+## Local AWS-modeled multi-service platform + lookup service 10-06-2026
+- Restructured to a multi-binary monorepo: `cmd/api` renamed to `cmd/core`; new `cmd/lookup`; shared `internal/` packages unchanged
+- Added parameterized `Dockerfile` (ARG SERVICE builds `cmd/${SERVICE}`; golang:1.26-alpine builder → distroless/static runtime) — one Dockerfile, one image per service, same image locally and on ECS later
+- Rewrote `docker-compose.yml` as a 1:1 local model of the AWS topology: nginx `gateway` on :8080 (≙ ALB; routes in `gateway/nginx.conf`, each location block ≙ a future ALB listener rule), `core` and `lookup` containers (≙ ECS services, `profiles: ["full"]`), `postgres` (≙ RDS; DB now `realdeal_core`), `localstack` (≙ S3/SecretsManager)
+- `scripts/postgres-init.sql`: creates `lookup_ro` SELECT-only role — lookup's read-only boundary is enforced by Postgres grants; default privileges cover tables core's AutoMigrate creates later. Init scripts only run on a fresh volume (`docker compose down -v` after changes)
+- `scripts/localstack-init.sh`: creates `realdeal-media-local` bucket with CORS mirroring media.yaml; **must be executable** (chmod +x) or LocalStack silently skips it
+- Upload service: relies on the SDK's standard `AWS_ENDPOINT_URL` env override for LocalStack (config v1.32 honors it natively); added `UsePathStyle` when a custom endpoint is set — prod (no endpoint) keeps virtual-host style. Presigning is offline, so the endpoint only needs to be reachable by the uploading client (host/simulator) → `http://localhost:4566`
+- Lookup service: `internal/handlers/search.go` — `GET /api/v1/search/properties` with q (ILIKE street/city/description), min_price/max_price, beds/baths, property_type, city/state, sort (price_asc/price_desc/newest), page/limit (capped 100), active listings only; `database.ConnectReadOnly` (no migrations/extensions); 6 unit tests with sqlmock
+- Integration suite `tests/integration/` (build tag `integration`): plain HTTP against `API_BASE_URL` (default localhost:8080 = gateway); flows: health, auth (signup→signin→me), cross-service search/offer lifecycle (listings written via core appear in lookup, accepted offer removes listing from search, competing offers auto-rejected), presign + real S3 PUT to LocalStack; unique emails per run so re-runnable against persistent DBs
+- Makefile: `dev` (infra + go run core), `up`/`down` (full stack), `docker-build`, `test-integration` (up → test → down), `smoke` (tests against API_BASE_URL — the future post-deploy check)
+- README.md added: service table, local→AWS mapping, "adding a service" recipe (own DB if it writes, read-only role if read side)
+- All unit tests and the full integration suite pass; verified end-to-end including S3 upload via presigned URL against LocalStack
 
 ## Implement offer flow API 10-05-2026
 - Created `internal/models/offer.go`: `Offer` model with `OfferStatus` (pending/accepted/rejected/withdrawn), GORM uuid primary key, index on `property_id`, associations to `Property` and `User`

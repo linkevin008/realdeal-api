@@ -9,6 +9,10 @@
 go.work
 go.work.sum
 
+# Test coverage artifacts
+coverage*.out
+coverage*.html
+
 # OS
 .DS_Store
 
