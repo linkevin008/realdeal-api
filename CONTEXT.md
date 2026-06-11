@@ -30,6 +30,13 @@
 
 # Context
 
+## Address contract: postal_code, supported countries, required specs 10-06-2026
+- Renamed `zip_code` → `postal_code` everywhere (model gorm column, request/response JSON) — country-neutral name; done while zero clients are deployed so the wire rename was free. Old `zip_code` column lingers in pre-existing dev volumes (AutoMigrate adds, never drops); fresh volumes are clean
+- `internal/handlers/countries.go`: `SupportedCountries = ["US","CA"]` is the single source of truth for where listings can be created; public `GET /api/v1/config/countries` serves it to the iOS dropdown and `CreateProperty` validates against the same list — adding a code there opens a market for both
+- Country must be ISO 3166-1 alpha-2 AND supported; postal format validated per country (US ZIP `\d{5}(-\d{4})?`, CA `A1A 1A1`); names are a client display concern (`Locale.localizedString(forRegionCode:)`)
+- `bedrooms`, `bathrooms`, `square_feet` now required on create — pointer fields with `binding:"required"`, so an explicit 0 (land) passes but omission 400s
+- Coordinates remain in the API (search radius depends on them) but the iOS client now geocodes them from the address via CLGeocoder — users never enter lat/lon
+
 ## Image replacement on property update 10-06-2026
 - `PUT /api/v1/properties/:id` accepts an optional `images: [{url, order}]` array — when present it replaces the property's full image set (delete-then-insert in one transaction); omitted/nil leaves images untouched
 - Closes the gap where images could only be set at creation; the presign upload flow now works end-to-end for existing listings: presign → PUT bytes to S3/LocalStack → attach via property update → returned by both core GET and lookup search → rendered by the iOS browse card (LocalStack GetObject 200 observed from the simulator)
