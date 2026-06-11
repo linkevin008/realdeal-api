@@ -58,11 +58,15 @@ func validYearBuilt(year int) bool {
 }
 
 // validateAddressFields returns a human-readable error for invalid
-// country/postal combinations, or "" when valid. Listings may only be created
-// in supported countries — the same list the client's dropdown is built from.
-func validateAddressFields(country, postalCode string) string {
+// country/state/postal combinations, or "" when valid. Listings may only be
+// created in supported countries, and where a country defines subdivisions the
+// state must be one of their codes — the same lists the client's dropdowns use.
+func validateAddressFields(country, state, postalCode string) string {
 	if !supportedCountrySet[country] {
-		return fmt.Sprintf("country %q is not supported yet — supported: %s", country, strings.Join(SupportedCountries, ", "))
+		return fmt.Sprintf("country %q is not supported yet — supported: %s", country, strings.Join(supportedCountryCodes(), ", "))
+	}
+	if subdivisions, ok := subdivisionSets[country]; ok && !subdivisions[state] {
+		return fmt.Sprintf("invalid state/province code %q for country %s", state, country)
 	}
 	if pattern, ok := postalPatterns[country]; ok && !pattern.MatchString(postalCode) {
 		return fmt.Sprintf("invalid postal code for country %s", country)
@@ -229,7 +233,7 @@ func (h *PropertyHandler) CreateProperty(c *gin.Context) {
 		return
 	}
 
-	if msg := validateAddressFields(req.Country, req.PostalCode); msg != "" {
+	if msg := validateAddressFields(req.Country, req.State, req.PostalCode); msg != "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": msg, "code": "VALIDATION_ERROR"})
 		return
 	}

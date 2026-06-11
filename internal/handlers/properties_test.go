@@ -347,6 +347,22 @@ func TestCreateProperty_InvalidInput(t *testing.T) {
 			},
 		},
 		{
+			name: "invalid state code for country",
+			body: map[string]interface{}{
+				"street": "123 Main St", "city": "Springfield", "state": "Illinois",
+				"postal_code": "62701", "country": "US", "price": 250000, "property_type": "house",
+				"bedrooms": 3, "bathrooms": 2.0, "square_feet": 1800, "year_built": 1998,
+			},
+		},
+		{
+			name: "state code from wrong country",
+			body: map[string]interface{}{
+				"street": "123 Main St", "city": "Toronto", "state": "ON",
+				"postal_code": "62701", "country": "US", "price": 250000, "property_type": "house",
+				"bedrooms": 3, "bathrooms": 2.0, "square_feet": 1800, "year_built": 1998,
+			},
+		},
+		{
 			name: "missing postal code",
 			body: map[string]interface{}{
 				"street": "123 Main St", "city": "Springfield", "state": "IL",
@@ -452,9 +468,21 @@ func TestSupportedCountries(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string][]string
+	var resp struct {
+		Data []struct {
+			Code         string `json:"code"`
+			Subdivisions []struct {
+				Code string `json:"code"`
+				Name string `json:"name"`
+			} `json:"subdivisions"`
+		} `json:"data"`
+	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.Equal(t, []string{"US", "CA"}, resp["data"])
+	require.Len(t, resp.Data, 2)
+	assert.Equal(t, "US", resp.Data[0].Code)
+	assert.Len(t, resp.Data[0].Subdivisions, 51) // 50 states + DC
+	assert.Equal(t, "CA", resp.Data[1].Code)
+	assert.Len(t, resp.Data[1].Subdivisions, 13) // 10 provinces + 3 territories
 
 	// An unsupported (but real) country is rejected at create time
 	gormDB, _ := newTestDB(t)
