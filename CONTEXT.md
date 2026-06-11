@@ -30,6 +30,11 @@
 
 # Context
 
+## Listing contract follow-ups: year_built required, lot_size removed 10-06-2026
+- `year_built` is now required on create with a plausibility range (1800..next year), validated on create and update
+- `lot_size` removed from the create/update request contract — no longer user input; the model column stays so imported MLS listings can still carry it
+- Tests cover missing and implausible year_built
+
 ## Address contract: postal_code, supported countries, required specs 10-06-2026
 - Renamed `zip_code` → `postal_code` everywhere (model gorm column, request/response JSON) — country-neutral name; done while zero clients are deployed so the wire rename was free. Old `zip_code` column lingers in pre-existing dev volumes (AutoMigrate adds, never drops); fresh volumes are clean
 - `internal/handlers/countries.go`: `SupportedCountries = ["US","CA"]` is the single source of truth for where listings can be created; public `GET /api/v1/config/countries` serves it to the iOS dropdown and `CreateProperty` validates against the same list — adding a code there opens a market for both
