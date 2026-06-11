@@ -239,6 +239,7 @@ func TestCreateProperty_Success(t *testing.T) {
 		"bedrooms":      3,
 		"bathrooms":     2.0,
 		"square_feet":   1800,
+		"year_built":    1998,
 	})
 
 	w := httptest.NewRecorder()
@@ -272,6 +273,7 @@ func TestCreateProperty_Unauthenticated(t *testing.T) {
 		"bedrooms":      3,
 		"bathrooms":     2.0,
 		"square_feet":   1800,
+		"year_built":    1998,
 	})
 
 	w := httptest.NewRecorder()
@@ -308,7 +310,7 @@ func TestCreateProperty_InvalidInput(t *testing.T) {
 			body: map[string]interface{}{
 				"street": "123 Main St", "city": "Springfield", "state": "IL",
 				"postal_code": "62701", "country": "US", "price": 250000, "property_type": "house",
-				"bedrooms": 3, "bathrooms": 2.0, "square_feet": 1800,
+				"bedrooms": 3, "bathrooms": 2.0, "square_feet": 1800, "year_built": 1998,
 				"latitude": 200.0, "longitude": -89.65,
 			},
 		},
@@ -317,7 +319,7 @@ func TestCreateProperty_InvalidInput(t *testing.T) {
 			body: map[string]interface{}{
 				"street": "123 Main St", "city": "Springfield", "state": "IL",
 				"postal_code": "62701", "country": "United States", "price": 250000, "property_type": "house",
-				"bedrooms": 3, "bathrooms": 2.0, "square_feet": 1800,
+				"bedrooms": 3, "bathrooms": 2.0, "square_feet": 1800, "year_built": 1998,
 			},
 		},
 		{
@@ -325,7 +327,7 @@ func TestCreateProperty_InvalidInput(t *testing.T) {
 			body: map[string]interface{}{
 				"street": "123 Main St", "city": "Springfield", "state": "IL",
 				"postal_code": "62701", "country": "USA", "price": 250000, "property_type": "house",
-				"bedrooms": 3, "bathrooms": 2.0, "square_feet": 1800,
+				"bedrooms": 3, "bathrooms": 2.0, "square_feet": 1800, "year_built": 1998,
 			},
 		},
 		{
@@ -333,7 +335,7 @@ func TestCreateProperty_InvalidInput(t *testing.T) {
 			body: map[string]interface{}{
 				"street": "123 Main St", "city": "Springfield", "state": "IL",
 				"postal_code": "A1A 1A1", "country": "US", "price": 250000, "property_type": "house",
-				"bedrooms": 3, "bathrooms": 2.0, "square_feet": 1800,
+				"bedrooms": 3, "bathrooms": 2.0, "square_feet": 1800, "year_built": 1998,
 			},
 		},
 		{
@@ -341,7 +343,7 @@ func TestCreateProperty_InvalidInput(t *testing.T) {
 			body: map[string]interface{}{
 				"street": "123 Main St", "city": "Toronto", "state": "ON",
 				"postal_code": "90210", "country": "CA", "price": 250000, "property_type": "house",
-				"bedrooms": 3, "bathrooms": 2.0, "square_feet": 1800,
+				"bedrooms": 3, "bathrooms": 2.0, "square_feet": 1800, "year_built": 1998,
 			},
 		},
 		{
@@ -349,7 +351,7 @@ func TestCreateProperty_InvalidInput(t *testing.T) {
 			body: map[string]interface{}{
 				"street": "123 Main St", "city": "Springfield", "state": "IL",
 				"country": "US", "price": 250000, "property_type": "house",
-				"bedrooms": 3, "bathrooms": 2.0, "square_feet": 1800,
+				"bedrooms": 3, "bathrooms": 2.0, "square_feet": 1800, "year_built": 1998,
 			},
 		},
 		{
@@ -357,7 +359,7 @@ func TestCreateProperty_InvalidInput(t *testing.T) {
 			body: map[string]interface{}{
 				"street": "123 Main St", "city": "Springfield", "state": "IL",
 				"postal_code": "62701", "country": "US", "price": 250000, "property_type": "house",
-				"bathrooms": 2.0, "square_feet": 1800,
+				"bathrooms": 2.0, "square_feet": 1800, "year_built": 1998,
 			},
 		},
 		{
@@ -365,7 +367,23 @@ func TestCreateProperty_InvalidInput(t *testing.T) {
 			body: map[string]interface{}{
 				"street": "123 Main St", "city": "Springfield", "state": "IL",
 				"postal_code": "62701", "country": "US", "price": 250000, "property_type": "house",
-				"bedrooms": 3, "bathrooms": 2.0, "square_feet": 0,
+				"bedrooms": 3, "bathrooms": 2.0, "square_feet": 0, "year_built": 1998,
+			},
+		},
+		{
+			name: "missing year built",
+			body: map[string]interface{}{
+				"street": "123 Main St", "city": "Springfield", "state": "IL",
+				"postal_code": "62701", "country": "US", "price": 250000, "property_type": "house",
+				"bedrooms": 3, "bathrooms": 2.0, "square_feet": 1800,
+			},
+		},
+		{
+			name: "implausible year built",
+			body: map[string]interface{}{
+				"street": "123 Main St", "city": "Springfield", "state": "IL",
+				"postal_code": "62701", "country": "US", "price": 250000, "property_type": "house",
+				"bedrooms": 3, "bathrooms": 2.0, "square_feet": 1800, "year_built": 1500,
 			},
 		},
 	}
@@ -412,7 +430,7 @@ func TestCreateProperty_ZeroBedroomsCA(t *testing.T) {
 		"street": "88 Scott St", "city": "Toronto", "state": "ON",
 		"postal_code": "M5E 0A9", "country": "CA",
 		"price": 900000.0, "property_type": "land",
-		"bedrooms": 0, "bathrooms": 0.0, "square_feet": 5000,
+		"bedrooms": 0, "bathrooms": 0.0, "square_feet": 5000, "year_built": 1990,
 	})
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodPost, "/properties", bytes.NewBuffer(body))
@@ -446,7 +464,7 @@ func TestSupportedCountries(t *testing.T) {
 		"street": "12 Rue de Rivoli", "city": "Paris", "state": "Ile-de-France",
 		"postal_code": "75004", "country": "FR",
 		"price": 900000.0, "property_type": "house",
-		"bedrooms": 2, "bathrooms": 1.0, "square_feet": 900,
+		"bedrooms": 2, "bathrooms": 1.0, "square_feet": 900, "year_built": 2005,
 	})
 	cw := httptest.NewRecorder()
 	creq, _ := http.NewRequest(http.MethodPost, "/properties", bytes.NewBuffer(body))
@@ -489,6 +507,7 @@ func TestCreateProperty_WithImages(t *testing.T) {
 		"bedrooms":      3,
 		"bathrooms":     2.0,
 		"square_feet":   1800,
+		"year_built":    1998,
 		"images": []map[string]interface{}{
 			{"url": "https://example.com/photo1.jpg", "order": 0},
 			{"url": "https://example.com/photo2.jpg", "order": 1},
@@ -688,7 +707,6 @@ func TestUpdateProperty_AllFields(t *testing.T) {
 		"country":    "CA",
 		"postal_code": "90210",
 		"type":       "condo",
-		"lot_size":   5000.0,
 		"year_built": 2005,
 		"latitude":   34.05,
 		"longitude":  -118.24,
@@ -734,7 +752,7 @@ func TestUpdateProperty_MultipleFields(t *testing.T) {
 		"description": "Updated description",
 		"bedrooms":    3,
 		"bathrooms":   2.0,
-		"square_feet": 1800,
+		"square_feet": 1800, "year_built": 1998,
 		"status":      "active",
 	})
 

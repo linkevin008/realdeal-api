@@ -57,6 +57,7 @@ func createListing(t *testing.T, seller *client, marker string, price float64, b
 		"bedrooms":      beds,
 		"bathrooms":     2.0,
 		"square_feet":   1800,
+		"year_built":    1998,
 		"description":   "integration test listing " + marker,
 		"latitude":      39.78,
 		"longitude":     -89.65,

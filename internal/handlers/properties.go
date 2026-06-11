@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kevinlin/realdeal-api/internal/models"
@@ -34,8 +35,7 @@ type createPropertyRequest struct {
 	Bedrooms    *int                 `json:"bedrooms" binding:"required,gte=0"`
 	Bathrooms   *float64             `json:"bathrooms" binding:"required,gte=0"`
 	SquareFeet  *int                 `json:"square_feet" binding:"required,gt=0"`
-	LotSize     *float64             `json:"lot_size"`
-	YearBuilt   *int                 `json:"year_built"`
+	YearBuilt   *int                 `json:"year_built" binding:"required"`
 	Latitude    float64              `json:"latitude"`
 	Longitude   float64              `json:"longitude"`
 	Source      models.ListingSource `json:"source"`
@@ -49,6 +49,12 @@ type createPropertyRequest struct {
 var postalPatterns = map[string]*regexp.Regexp{
 	"US": regexp.MustCompile(`^\d{5}(-\d{4})?$`),
 	"CA": regexp.MustCompile(`^[A-Za-z]\d[A-Za-z][ -]?\d[A-Za-z]\d$`),
+}
+
+// validYearBuilt sanity-checks a construction year (no listings from before
+// 1800 or from the future; +1 allows new construction completing next year).
+func validYearBuilt(year int) bool {
+	return year >= 1800 && year <= time.Now().Year()+1
 }
 
 // validateAddressFields returns a human-readable error for invalid
@@ -76,7 +82,6 @@ type updatePropertyRequest struct {
 	Bedrooms    *int                  `json:"bedrooms"`
 	Bathrooms   *float64              `json:"bathrooms"`
 	SquareFeet  *int                  `json:"square_feet"`
-	LotSize     *float64              `json:"lot_size"`
 	YearBuilt   *int                  `json:"year_built"`
 	Latitude    *float64              `json:"latitude"`
 	Longitude   *float64              `json:"longitude"`
@@ -229,6 +234,11 @@ func (h *PropertyHandler) CreateProperty(c *gin.Context) {
 		return
 	}
 
+	if !validYearBuilt(*req.YearBuilt) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "year_built must be a plausible construction year", "code": "VALIDATION_ERROR"})
+		return
+	}
+
 	source := req.Source
 	if source == "" {
 		source = models.ListingSourceUserGenerated
@@ -246,7 +256,6 @@ func (h *PropertyHandler) CreateProperty(c *gin.Context) {
 		Bedrooms:    req.Bedrooms,
 		Bathrooms:   req.Bathrooms,
 		SquareFeet:  req.SquareFeet,
-		LotSize:     req.LotSize,
 		YearBuilt:   req.YearBuilt,
 		Latitude:    req.Latitude,
 		Longitude:   req.Longitude,
@@ -332,10 +341,11 @@ func (h *PropertyHandler) UpdateProperty(c *gin.Context) {
 	if req.SquareFeet != nil {
 		updates["square_feet"] = *req.SquareFeet
 	}
-	if req.LotSize != nil {
-		updates["lot_size"] = *req.LotSize
-	}
 	if req.YearBuilt != nil {
+		if !validYearBuilt(*req.YearBuilt) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "year_built must be a plausible construction year", "code": "VALIDATION_ERROR"})
+			return
+		}
 		updates["year_built"] = *req.YearBuilt
 	}
 	if req.Latitude != nil {
