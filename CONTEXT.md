@@ -1,5 +1,13 @@
 # Context
 
+## Viewing scheduling API: slots + seller-approved requests 05-07-2026
+- Product decisions: sellers post one-off dated time slots (no recurrence — a slot generator can add it later without wire changes); seller approves each request; one buyer per slot (accept auto-declines competing pending requests, same transaction pattern as AcceptOffer)
+- `internal/models/viewing.go`: `ViewingSlot` (property child, start/end UTC) and `ViewingRequest` (slot + denormalized property FK, buyer, optional message, status pending/accepted/declined/cancelled)
+- `internal/handlers/viewings.go`: 8 endpoints mirroring the offer handler — slot create (seller, active property, future start, half-open overlap check)/list (public, `booked` flag without leaking booker)/delete (declines pending in tx; 409 if a confirmed booking exists); request create (active re-checked, own-property 403, booked 409, one live request per buyer)/seller list/accept (tx auto-decline)/decline/buyer cancel (pending or accepted → cancelled; a cancelled acceptance frees the slot since booked = has accepted request); `GET /users/me/viewing-requests` mirrors ListMyOffers
+- "Booked" is computed (count of accepted requests), not a stored flag — no stale-state on cancellation
+- 18 sqlmock tests incl. transaction ordering assertions; suite 142/142 handler tests green; evaluator-verified (APPROVE)
+- Known residual risk: concurrent accepts on the same slot rely on read-then-write; a partial unique index on `(slot_id) WHERE status='accepted'` would harden it (candidate backlog item)
+
 ## Listing contract follow-ups: year_built required, lot_size removed 10-06-2026
 - `year_built` is now required on create with a plausibility range (1800..next year), validated on create and update
 - `lot_size` removed from the create/update request contract — no longer user input; the model column stays so imported MLS listings can still carry it
