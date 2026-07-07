@@ -39,6 +39,8 @@ func Connect(cfg *config.Config) (*gorm.DB, error) {
 		&models.PropertyImage{},
 		&models.Favorite{},
 		&models.Offer{},
+		&models.ViewingSlot{},
+		&models.ViewingRequest{},
 	); err != nil {
 		return nil, fmt.Errorf("auto-migration failed: %w", err)
 	}

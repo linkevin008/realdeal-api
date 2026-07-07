@@ -60,6 +60,7 @@ func main() {
 	favoriteHandler := handlers.NewFavoriteHandler(db)
 	uploadHandler := handlers.NewUploadHandler(uploadSvc)
 	offerHandler := handlers.NewOfferHandler(db)
+	viewingHandler := handlers.NewViewingHandler(db)
 
 	// Auth middleware
 	authMW := middleware.AuthMiddleware(cfg)
@@ -113,10 +114,27 @@ func main() {
 		properties.PUT("/:id/offers/:offerId/accept", authMW, offerHandler.AcceptOffer)
 		properties.PUT("/:id/offers/:offerId/reject", authMW, offerHandler.RejectOffer)
 		properties.DELETE("/:id/offers/:offerId", authMW, offerHandler.WithdrawOffer)
+
+		// Viewing slot routes (nested under property)
+		properties.POST("/:id/viewing-slots", authMW, viewingHandler.CreateSlot)
+		properties.GET("/:id/viewing-slots", viewingHandler.ListSlots)
+		properties.DELETE("/:id/viewing-slots/:slotId", authMW, viewingHandler.DeleteSlot)
+		properties.POST("/:id/viewing-slots/:slotId/requests", authMW, viewingHandler.RequestViewing)
+
+		// Viewing request routes (nested under property, seller-facing)
+		properties.GET("/:id/viewing-requests", authMW, viewingHandler.ListRequests)
+		properties.PUT("/:id/viewing-requests/:requestId/accept", authMW, viewingHandler.AcceptRequest)
+		properties.PUT("/:id/viewing-requests/:requestId/decline", authMW, viewingHandler.DeclineRequest)
 	}
 
 	// Buyer's own offers
 	users.GET("/me/offers", authMW, offerHandler.ListMyOffers)
+
+	// Buyer's own viewing requests
+	users.GET("/me/viewing-requests", authMW, viewingHandler.ListMyRequests)
+
+	// Cancel a viewing request (buyer-owner-only)
+	v1.DELETE("/viewing-requests/:requestId", authMW, viewingHandler.CancelRequest)
 
 	// Start server
 	log.Printf("Starting server on :%s (env: %s)", cfg.Port, cfg.Env)
