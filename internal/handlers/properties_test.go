@@ -210,6 +210,7 @@ func TestCreateProperty_Success(t *testing.T) {
 	h := handlers.NewPropertyHandler(gormDB)
 	r := setupPropertyRouter(h, "seller-1")
 
+	expectNoConfirmedTrustEvent(mock)
 	mock.ExpectBegin()
 	mock.ExpectQuery(`INSERT INTO "properties"`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).
@@ -430,6 +431,7 @@ func TestCreateProperty_ZeroBedroomsCA(t *testing.T) {
 	h := handlers.NewPropertyHandler(gormDB)
 	r := setupPropertyRouter(h, "seller-1")
 
+	expectNoConfirmedTrustEvent(mock)
 	mock.ExpectBegin()
 	mock.ExpectQuery(`INSERT INTO "properties"`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).
@@ -507,6 +509,7 @@ func TestCreateProperty_WithImages(t *testing.T) {
 	h := handlers.NewPropertyHandler(gormDB)
 	r := setupPropertyRouter(h, "seller-1")
 
+	expectNoConfirmedTrustEvent(mock)
 	mock.ExpectBegin()
 	mock.ExpectQuery(`INSERT INTO "properties"`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).

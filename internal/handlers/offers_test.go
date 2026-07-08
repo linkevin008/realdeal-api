@@ -35,12 +35,34 @@ func setupOfferRouter(h *handlers.OfferHandler, callerID string) *gin.Engine {
 }
 
 func offerColumns() []string {
-	return []string{"id", "property_id", "buyer_id", "amount", "message", "status", "created_at", "updated_at"}
+	return []string{"id", "property_id", "buyer_id", "amount", "message", "status", "payment_deadline", "created_at", "updated_at"}
 }
 
 func offerRow(id, propertyID, buyerID string, amount float64, status string) []driver.Value {
 	now := time.Now()
-	return []driver.Value{id, propertyID, buyerID, amount, "", status, now, now}
+	return []driver.Value{id, propertyID, buyerID, amount, "", status, nil, now, now}
+}
+
+// offerRowWithDeadline is offerRow with an explicit payment_deadline, for
+// trust-enforcement tests that need to control whether the deadline has passed.
+func offerRowWithDeadline(id, propertyID, buyerID string, amount float64, status string, deadline time.Time) []driver.Value {
+	now := time.Now()
+	return []driver.Value{id, propertyID, buyerID, amount, "", status, deadline, now, now}
+}
+
+// expectNoConfirmedTrustEvent stubs the hasConfirmedTrustEvent count query
+// used by SubmitOffer/AcceptOffer/CreateProperty enforcement checks, returning
+// a zero count (account not flagged).
+func expectNoConfirmedTrustEvent(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery(`SELECT count\(\*\) FROM "trust_events"`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+}
+
+// expectConfirmedTrustEvent stubs the same query returning a nonzero count
+// (account flagged).
+func expectConfirmedTrustEvent(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery(`SELECT count\(\*\) FROM "trust_events"`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 }
 
 func buyerRow() *sqlmock.Rows {
@@ -53,12 +75,13 @@ func buyerRow() *sqlmock.Rows {
 func TestSubmitOffer_Success(t *testing.T) {
 	t.Parallel()
 	gormDB, mock := newTestDB(t)
-	h := handlers.NewOfferHandler(gormDB)
+	h := handlers.NewOfferHandler(gormDB, 72)
 	r := setupOfferRouter(h, "buyer-1")
 
 	sellerID := "seller-1"
 	mock.ExpectQuery(`SELECT .* FROM "properties"`).
 		WillReturnRows(sqlmock.NewRows(propertyColumns()).AddRow(propertyRow("prop-1", sellerID)...))
+	expectNoConfirmedTrustEvent(mock)
 	mock.ExpectBegin()
 	mock.ExpectQuery(`INSERT INTO "offers"`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("offer-1"))
@@ -83,7 +106,7 @@ func TestSubmitOffer_Success(t *testing.T) {
 func TestSubmitOffer_SellerCannotOffer(t *testing.T) {
 	t.Parallel()
 	gormDB, mock := newTestDB(t)
-	h := handlers.NewOfferHandler(gormDB)
+	h := handlers.NewOfferHandler(gormDB, 72)
 	r := setupOfferRouter(h, "seller-1")
 
 	mock.ExpectQuery(`SELECT .* FROM "properties"`).
@@ -98,10 +121,30 @@ func TestSubmitOffer_SellerCannotOffer(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, w.Code)
 }
 
+func TestSubmitOffer_TrustCheckDBError(t *testing.T) {
+	t.Parallel()
+	gormDB, mock := newTestDB(t)
+	h := handlers.NewOfferHandler(gormDB, 72)
+	r := setupOfferRouter(h, "buyer-1")
+
+	mock.ExpectQuery(`SELECT .* FROM "properties"`).
+		WillReturnRows(sqlmock.NewRows(propertyColumns()).AddRow(propertyRow("prop-1", "seller-1")...))
+	mock.ExpectQuery(`SELECT count\(\*\) FROM "trust_events"`).
+		WillReturnError(errors.New("connection reset"))
+
+	body, _ := json.Marshal(map[string]interface{}{"amount": 300000})
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPost, "/properties/prop-1/offers", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
 func TestSubmitOffer_PropertyNotActive(t *testing.T) {
 	t.Parallel()
 	gormDB, mock := newTestDB(t)
-	h := handlers.NewOfferHandler(gormDB)
+	h := handlers.NewOfferHandler(gormDB, 72)
 	r := setupOfferRouter(h, "buyer-1")
 
 	row := propertyRow("prop-1", "seller-1")
@@ -121,11 +164,12 @@ func TestSubmitOffer_PropertyNotActive(t *testing.T) {
 func TestSubmitOffer_InvalidAmount(t *testing.T) {
 	t.Parallel()
 	gormDB, mock := newTestDB(t)
-	h := handlers.NewOfferHandler(gormDB)
+	h := handlers.NewOfferHandler(gormDB, 72)
 	r := setupOfferRouter(h, "buyer-1")
 
 	mock.ExpectQuery(`SELECT .* FROM "properties"`).
 		WillReturnRows(sqlmock.NewRows(propertyColumns()).AddRow(propertyRow("prop-1", "seller-1")...))
+	expectNoConfirmedTrustEvent(mock)
 
 	body, _ := json.Marshal(map[string]interface{}{"amount": -100})
 	w := httptest.NewRecorder()
@@ -141,7 +185,7 @@ func TestSubmitOffer_InvalidAmount(t *testing.T) {
 func TestListOffers_SellerSuccess(t *testing.T) {
 	t.Parallel()
 	gormDB, mock := newTestDB(t)
-	h := handlers.NewOfferHandler(gormDB)
+	h := handlers.NewOfferHandler(gormDB, 72)
 	r := setupOfferRouter(h, "seller-1")
 
 	mock.ExpectQuery(`SELECT .* FROM "properties"`).
@@ -160,7 +204,7 @@ func TestListOffers_SellerSuccess(t *testing.T) {
 func TestListOffers_NonSellerForbidden(t *testing.T) {
 	t.Parallel()
 	gormDB, mock := newTestDB(t)
-	h := handlers.NewOfferHandler(gormDB)
+	h := handlers.NewOfferHandler(gormDB, 72)
 	r := setupOfferRouter(h, "other-user")
 
 	mock.ExpectQuery(`SELECT .* FROM "properties"`).
@@ -178,11 +222,12 @@ func TestListOffers_NonSellerForbidden(t *testing.T) {
 func TestAcceptOffer_Success(t *testing.T) {
 	t.Parallel()
 	gormDB, mock := newTestDB(t)
-	h := handlers.NewOfferHandler(gormDB)
+	h := handlers.NewOfferHandler(gormDB, 72)
 	r := setupOfferRouter(h, "seller-1")
 
 	mock.ExpectQuery(`SELECT .* FROM "properties"`).
 		WillReturnRows(sqlmock.NewRows(propertyColumns()).AddRow(propertyRow("prop-1", "seller-1")...))
+	expectNoConfirmedTrustEvent(mock)
 	mock.ExpectQuery(`SELECT .* FROM "offers"`).
 		WillReturnRows(sqlmock.NewRows(offerColumns()).AddRow(offerRow("offer-1", "prop-1", "buyer-1", 300000, "pending")...))
 	mock.ExpectBegin()
@@ -207,7 +252,7 @@ func TestAcceptOffer_Success(t *testing.T) {
 func TestAcceptOffer_NonSellerForbidden(t *testing.T) {
 	t.Parallel()
 	gormDB, mock := newTestDB(t)
-	h := handlers.NewOfferHandler(gormDB)
+	h := handlers.NewOfferHandler(gormDB, 72)
 	r := setupOfferRouter(h, "buyer-1")
 
 	mock.ExpectQuery(`SELECT .* FROM "properties"`).
@@ -223,11 +268,12 @@ func TestAcceptOffer_NonSellerForbidden(t *testing.T) {
 func TestAcceptOffer_AlreadyAccepted(t *testing.T) {
 	t.Parallel()
 	gormDB, mock := newTestDB(t)
-	h := handlers.NewOfferHandler(gormDB)
+	h := handlers.NewOfferHandler(gormDB, 72)
 	r := setupOfferRouter(h, "seller-1")
 
 	mock.ExpectQuery(`SELECT .* FROM "properties"`).
 		WillReturnRows(sqlmock.NewRows(propertyColumns()).AddRow(propertyRow("prop-1", "seller-1")...))
+	expectNoConfirmedTrustEvent(mock)
 	mock.ExpectQuery(`SELECT .* FROM "offers"`).
 		WillReturnRows(sqlmock.NewRows(offerColumns()).AddRow(offerRow("offer-1", "prop-1", "buyer-1", 300000, "accepted")...))
 
@@ -243,7 +289,7 @@ func TestAcceptOffer_AlreadyAccepted(t *testing.T) {
 func TestWithdrawOffer_Success(t *testing.T) {
 	t.Parallel()
 	gormDB, mock := newTestDB(t)
-	h := handlers.NewOfferHandler(gormDB)
+	h := handlers.NewOfferHandler(gormDB, 72)
 	r := setupOfferRouter(h, "buyer-1")
 
 	mock.ExpectQuery(`SELECT .* FROM "offers"`).
@@ -262,7 +308,7 @@ func TestWithdrawOffer_Success(t *testing.T) {
 func TestWithdrawOffer_WrongBuyer(t *testing.T) {
 	t.Parallel()
 	gormDB, mock := newTestDB(t)
-	h := handlers.NewOfferHandler(gormDB)
+	h := handlers.NewOfferHandler(gormDB, 72)
 	r := setupOfferRouter(h, "other-buyer")
 
 	mock.ExpectQuery(`SELECT .* FROM "offers"`).
@@ -280,7 +326,7 @@ func TestWithdrawOffer_WrongBuyer(t *testing.T) {
 func TestRejectOffer_Success(t *testing.T) {
 	t.Parallel()
 	gormDB, mock := newTestDB(t)
-	h := handlers.NewOfferHandler(gormDB)
+	h := handlers.NewOfferHandler(gormDB, 72)
 	r := setupOfferRouter(h, "seller-1")
 
 	mock.ExpectQuery(`SELECT .* FROM "properties"`).
@@ -307,7 +353,7 @@ func TestRejectOffer_Success(t *testing.T) {
 func TestRejectOffer_NonSellerForbidden(t *testing.T) {
 	t.Parallel()
 	gormDB, mock := newTestDB(t)
-	h := handlers.NewOfferHandler(gormDB)
+	h := handlers.NewOfferHandler(gormDB, 72)
 	r := setupOfferRouter(h, "buyer-1")
 
 	mock.ExpectQuery(`SELECT .* FROM "properties"`).
@@ -323,7 +369,7 @@ func TestRejectOffer_NonSellerForbidden(t *testing.T) {
 func TestRejectOffer_AlreadyRejected(t *testing.T) {
 	t.Parallel()
 	gormDB, mock := newTestDB(t)
-	h := handlers.NewOfferHandler(gormDB)
+	h := handlers.NewOfferHandler(gormDB, 72)
 	r := setupOfferRouter(h, "seller-1")
 
 	mock.ExpectQuery(`SELECT .* FROM "properties"`).
@@ -341,7 +387,7 @@ func TestRejectOffer_AlreadyRejected(t *testing.T) {
 func TestSubmitOffer_PropertyNotFound(t *testing.T) {
 	t.Parallel()
 	gormDB, mock := newTestDB(t)
-	h := handlers.NewOfferHandler(gormDB)
+	h := handlers.NewOfferHandler(gormDB, 72)
 	r := setupOfferRouter(h, "buyer-1")
 
 	mock.ExpectQuery(`SELECT .* FROM "properties"`).
@@ -359,13 +405,14 @@ func TestSubmitOffer_PropertyNotFound(t *testing.T) {
 func TestAcceptOffer_PropertyNotActive(t *testing.T) {
 	t.Parallel()
 	gormDB, mock := newTestDB(t)
-	h := handlers.NewOfferHandler(gormDB)
+	h := handlers.NewOfferHandler(gormDB, 72)
 	r := setupOfferRouter(h, "seller-1")
 
 	row := propertyRow("prop-1", "seller-1")
 	row[18] = "pending"
 	mock.ExpectQuery(`SELECT .* FROM "properties"`).
 		WillReturnRows(sqlmock.NewRows(propertyColumns()).AddRow(row...))
+	expectNoConfirmedTrustEvent(mock)
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodPut, "/properties/prop-1/offers/offer-1/accept", nil)
@@ -377,7 +424,7 @@ func TestAcceptOffer_PropertyNotActive(t *testing.T) {
 func TestWithdrawOffer_AlreadyWithdrawn(t *testing.T) {
 	t.Parallel()
 	gormDB, mock := newTestDB(t)
-	h := handlers.NewOfferHandler(gormDB)
+	h := handlers.NewOfferHandler(gormDB, 72)
 	r := setupOfferRouter(h, "buyer-1")
 
 	mock.ExpectQuery(`SELECT .* FROM "offers"`).
@@ -395,7 +442,7 @@ func TestWithdrawOffer_AlreadyWithdrawn(t *testing.T) {
 func TestListOffers_PropertyNotFound(t *testing.T) {
 	t.Parallel()
 	gormDB, mock := newTestDB(t)
-	h := handlers.NewOfferHandler(gormDB)
+	h := handlers.NewOfferHandler(gormDB, 72)
 	r := setupOfferRouter(h, "seller-1")
 
 	mock.ExpectQuery(`SELECT .* FROM "properties"`).
@@ -411,11 +458,12 @@ func TestListOffers_PropertyNotFound(t *testing.T) {
 func TestAcceptOffer_OfferNotFound(t *testing.T) {
 	t.Parallel()
 	gormDB, mock := newTestDB(t)
-	h := handlers.NewOfferHandler(gormDB)
+	h := handlers.NewOfferHandler(gormDB, 72)
 	r := setupOfferRouter(h, "seller-1")
 
 	mock.ExpectQuery(`SELECT .* FROM "properties"`).
 		WillReturnRows(sqlmock.NewRows(propertyColumns()).AddRow(propertyRow("prop-1", "seller-1")...))
+	expectNoConfirmedTrustEvent(mock)
 	mock.ExpectQuery(`SELECT .* FROM "offers"`).
 		WillReturnRows(sqlmock.NewRows(offerColumns()))
 
@@ -429,7 +477,7 @@ func TestAcceptOffer_OfferNotFound(t *testing.T) {
 func TestRejectOffer_PropertyNotFound(t *testing.T) {
 	t.Parallel()
 	gormDB, mock := newTestDB(t)
-	h := handlers.NewOfferHandler(gormDB)
+	h := handlers.NewOfferHandler(gormDB, 72)
 	r := setupOfferRouter(h, "seller-1")
 
 	mock.ExpectQuery(`SELECT .* FROM "properties"`).
@@ -445,7 +493,7 @@ func TestRejectOffer_PropertyNotFound(t *testing.T) {
 func TestRejectOffer_OfferNotFound(t *testing.T) {
 	t.Parallel()
 	gormDB, mock := newTestDB(t)
-	h := handlers.NewOfferHandler(gormDB)
+	h := handlers.NewOfferHandler(gormDB, 72)
 	r := setupOfferRouter(h, "seller-1")
 
 	mock.ExpectQuery(`SELECT .* FROM "properties"`).
@@ -463,7 +511,7 @@ func TestRejectOffer_OfferNotFound(t *testing.T) {
 func TestWithdrawOffer_NotFound(t *testing.T) {
 	t.Parallel()
 	gormDB, mock := newTestDB(t)
-	h := handlers.NewOfferHandler(gormDB)
+	h := handlers.NewOfferHandler(gormDB, 72)
 	r := setupOfferRouter(h, "buyer-1")
 
 	mock.ExpectQuery(`SELECT .* FROM "offers"`).
@@ -479,7 +527,7 @@ func TestWithdrawOffer_NotFound(t *testing.T) {
 func TestListMyOffers_DBError(t *testing.T) {
 	t.Parallel()
 	gormDB, mock := newTestDB(t)
-	h := handlers.NewOfferHandler(gormDB)
+	h := handlers.NewOfferHandler(gormDB, 72)
 	r := setupOfferRouter(h, "buyer-1")
 
 	mock.ExpectQuery(`SELECT .* FROM "offers"`).WillReturnError(errors.New("db error"))
@@ -494,11 +542,12 @@ func TestListMyOffers_DBError(t *testing.T) {
 func TestAcceptOffer_TransactionError(t *testing.T) {
 	t.Parallel()
 	gormDB, mock := newTestDB(t)
-	h := handlers.NewOfferHandler(gormDB)
+	h := handlers.NewOfferHandler(gormDB, 72)
 	r := setupOfferRouter(h, "seller-1")
 
 	mock.ExpectQuery(`SELECT .* FROM "properties"`).
 		WillReturnRows(sqlmock.NewRows(propertyColumns()).AddRow(propertyRow("prop-1", "seller-1")...))
+	expectNoConfirmedTrustEvent(mock)
 	mock.ExpectQuery(`SELECT .* FROM "offers"`).
 		WillReturnRows(sqlmock.NewRows(offerColumns()).AddRow(offerRow("offer-1", "prop-1", "buyer-1", 300000, "pending")...))
 	mock.ExpectBegin()
@@ -515,7 +564,7 @@ func TestAcceptOffer_TransactionError(t *testing.T) {
 func TestListMyOffers_Empty(t *testing.T) {
 	t.Parallel()
 	gormDB, mock := newTestDB(t)
-	h := handlers.NewOfferHandler(gormDB)
+	h := handlers.NewOfferHandler(gormDB, 72)
 	r := setupOfferRouter(h, "buyer-1")
 
 	mock.ExpectQuery(`SELECT .* FROM "offers"`).
@@ -534,7 +583,7 @@ func TestListMyOffers_Empty(t *testing.T) {
 func TestListMyOffers_Success(t *testing.T) {
 	t.Parallel()
 	gormDB, mock := newTestDB(t)
-	h := handlers.NewOfferHandler(gormDB)
+	h := handlers.NewOfferHandler(gormDB, 72)
 	r := setupOfferRouter(h, "buyer-1")
 
 	mock.ExpectQuery(`SELECT .* FROM "offers"`).

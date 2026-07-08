@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 )
 
 // Config holds all configuration for the application.
@@ -28,6 +29,11 @@ type Config struct {
 	AWSRegion         string
 	S3Bucket          string
 	CloudFrontBaseURL string
+
+	// Trust / enforcement
+	// PaymentDeadlineHours is how long a buyer has to pay after their offer
+	// is accepted before the seller may report non-payment.
+	PaymentDeadlineHours int
 }
 
 // Load reads configuration from environment variables.
@@ -46,6 +52,8 @@ func Load() (*Config, error) {
 		AWSRegion:         getEnv("AWS_REGION", "us-west-2"),
 		S3Bucket:          getEnv("S3_BUCKET", ""),
 		CloudFrontBaseURL: getEnv("CLOUDFRONT_BASE_URL", ""),
+
+		PaymentDeadlineHours: getEnvInt("PAYMENT_DEADLINE_HOURS", 72),
 	}
 
 	if cfg.DBPassword == "" {
@@ -78,6 +86,16 @@ func (c *Config) DSN() string {
 func getEnv(key, fallback string) string {
 	if value, ok := os.LookupEnv(key); ok {
 		return value
+	}
+	return fallback
+}
+
+func getEnvInt(key string, fallback int) int {
+	if value, ok := os.LookupEnv(key); ok {
+		if parsed, err := strconv.Atoi(value); err == nil {
+			return parsed
+		}
+		log.Printf("WARNING: %s is not a valid integer, using default %d", key, fallback)
 	}
 	return fallback
 }

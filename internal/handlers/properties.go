@@ -243,6 +243,14 @@ func (h *PropertyHandler) CreateProperty(c *gin.Context) {
 		return
 	}
 
+	if flagged, err := hasConfirmedTrustEvent(h.db, sellerID, models.TrustEventDeedDefault, models.TrustEventDocumentFraud); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create property", "code": "INTERNAL_ERROR"})
+		return
+	} else if flagged {
+		c.JSON(http.StatusForbidden, gin.H{"error": "listings cannot be created from this account", "code": "FORBIDDEN"})
+		return
+	}
+
 	source := req.Source
 	if source == "" {
 		source = models.ListingSourceUserGenerated

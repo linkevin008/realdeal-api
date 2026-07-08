@@ -59,8 +59,9 @@ func main() {
 	propertyHandler := handlers.NewPropertyHandler(db)
 	favoriteHandler := handlers.NewFavoriteHandler(db)
 	uploadHandler := handlers.NewUploadHandler(uploadSvc)
-	offerHandler := handlers.NewOfferHandler(db)
+	offerHandler := handlers.NewOfferHandler(db, cfg.PaymentDeadlineHours)
 	viewingHandler := handlers.NewViewingHandler(db)
+	trustHandler := handlers.NewTrustHandler(db)
 
 	// Auth middleware
 	authMW := middleware.AuthMiddleware(cfg)
@@ -94,6 +95,9 @@ func main() {
 		users.GET("/:id/favorites", authMW, favoriteHandler.ListFavorites)
 		users.POST("/:id/favorites", authMW, favoriteHandler.AddFavorite)
 		users.DELETE("/:id/favorites/:propertyId", authMW, favoriteHandler.RemoveFavorite)
+
+		// Trust appeal (self-service filing only; resolution is manual ops)
+		users.POST("/me/trust-appeal", authMW, trustHandler.FileAppeal)
 	}
 
 	// Upload routes
@@ -114,6 +118,8 @@ func main() {
 		properties.PUT("/:id/offers/:offerId/accept", authMW, offerHandler.AcceptOffer)
 		properties.PUT("/:id/offers/:offerId/reject", authMW, offerHandler.RejectOffer)
 		properties.DELETE("/:id/offers/:offerId", authMW, offerHandler.WithdrawOffer)
+		properties.POST("/:id/offers/:offerId/report-nonpayment", authMW, trustHandler.ReportNonPayment)
+		properties.POST("/:id/offers/:offerId/report-seller", authMW, trustHandler.ReportSeller)
 
 		// Viewing slot routes (nested under property)
 		properties.POST("/:id/viewing-slots", authMW, viewingHandler.CreateSlot)

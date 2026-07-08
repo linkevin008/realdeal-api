@@ -9,6 +9,9 @@ const (
 	OfferStatusAccepted  OfferStatus = "accepted"
 	OfferStatusRejected  OfferStatus = "rejected"
 	OfferStatusWithdrawn OfferStatus = "withdrawn"
+	// OfferStatusDefaulted: the accepted offer went unpaid past its payment
+	// deadline and was reported by the seller (see TrustEventOfferDefault).
+	OfferStatusDefaulted OfferStatus = "defaulted"
 )
 
 type Offer struct {
@@ -18,8 +21,11 @@ type Offer struct {
 	Amount     float64     `json:"amount" gorm:"not null"`
 	Message    string      `json:"message"`
 	Status     OfferStatus `json:"status" gorm:"not null;default:'pending'"`
-	CreatedAt  time.Time   `json:"created_at"`
-	UpdatedAt  time.Time   `json:"updated_at"`
-	Property   *Property   `json:"property,omitempty" gorm:"foreignKey:PropertyID"`
-	Buyer      *User       `json:"buyer,omitempty" gorm:"foreignKey:BuyerID"`
+	// PaymentDeadline is stamped when the offer is accepted; the seller may
+	// report non-payment only once this has passed.
+	PaymentDeadline *time.Time `json:"payment_deadline,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+	Property        *Property  `json:"property,omitempty" gorm:"foreignKey:PropertyID"`
+	Buyer           *User      `json:"buyer,omitempty" gorm:"foreignKey:BuyerID"`
 }

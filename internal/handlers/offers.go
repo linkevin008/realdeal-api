@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kevinlin/realdeal-api/internal/models"
@@ -9,11 +10,12 @@ import (
 )
 
 type OfferHandler struct {
-	db *gorm.DB
+	db                   *gorm.DB
+	paymentDeadlineHours int
 }
 
-func NewOfferHandler(db *gorm.DB) *OfferHandler {
-	return &OfferHandler{db: db}
+func NewOfferHandler(db *gorm.DB, paymentDeadlineHours int) *OfferHandler {
+	return &OfferHandler{db: db, paymentDeadlineHours: paymentDeadlineHours}
 }
 
 type submitOfferRequest struct {
@@ -39,6 +41,14 @@ func (h *OfferHandler) SubmitOffer(c *gin.Context) {
 
 	if property.SellerID != nil && *property.SellerID == callerID {
 		c.JSON(http.StatusForbidden, gin.H{"error": "seller cannot submit an offer on their own listing", "code": "FORBIDDEN"})
+		return
+	}
+
+	if flagged, err := hasConfirmedTrustEvent(h.db, callerID, models.TrustEventOfferDefault); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to submit offer", "code": "INTERNAL_ERROR"})
+		return
+	} else if flagged {
+		c.JSON(http.StatusForbidden, gin.H{"error": "offers cannot be submitted from this account", "code": "FORBIDDEN"})
 		return
 	}
 
@@ -111,6 +121,14 @@ func (h *OfferHandler) AcceptOffer(c *gin.Context) {
 		return
 	}
 
+	if flagged, err := hasConfirmedTrustEvent(h.db, callerID, models.TrustEventDeedDefault, models.TrustEventDocumentFraud); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to accept offer", "code": "INTERNAL_ERROR"})
+		return
+	} else if flagged {
+		c.JSON(http.StatusForbidden, gin.H{"error": "offers cannot be accepted from this account", "code": "FORBIDDEN"})
+		return
+	}
+
 	if property.Status != models.PropertyStatusActive {
 		c.JSON(http.StatusConflict, gin.H{"error": "property is not available", "code": "PROPERTY_NOT_AVAILABLE"})
 		return
@@ -127,8 +145,13 @@ func (h *OfferHandler) AcceptOffer(c *gin.Context) {
 		return
 	}
 
+	deadline := time.Now().Add(time.Duration(h.paymentDeadlineHours) * time.Hour)
+
 	err := h.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&offer).Update("status", models.OfferStatusAccepted).Error; err != nil {
+		if err := tx.Model(&offer).Updates(map[string]interface{}{
+			"status":           models.OfferStatusAccepted,
+			"payment_deadline": deadline,
+		}).Error; err != nil {
 			return err
 		}
 		if err := tx.Model(&models.Offer{}).
