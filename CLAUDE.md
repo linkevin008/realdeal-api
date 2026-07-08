@@ -3,6 +3,7 @@
 
 # Commands
 - Unit tests: `make test` (= `go test ./...`)
+- Coverage gate: `make test-cover` — the pre-commit hook enforces ≥90% total coverage and runs the full suite against the WORKING TREE; changes must clear both before any commit attempt (evaluators: check this, not just `make test`)
 - Build: `make build` (or `go build ./...` for a compile check)
 - Vet: `go vet ./...`
 - Full local stack (gateway + core + lookup + postgres + LocalStack): `make up` / `make down`
@@ -19,7 +20,10 @@ Priority: P0 = important/must have, P1 = need to have but not crucial, P2 = nice
 - [x][P0] Implement a way to schedule a viewing → API done (one-off slots, seller-approved requests, one buyer per slot); iOS UI tracked in realdeal-ios backlog
 - [x][P0] Decide on if we want to enlist realtors as part of the service? → No. Agents/realtors are removed from the product; RealDeal is direct buyer↔seller
 - [x][P0] Remove the agent user role and all agent-specific logic/tests — 2-user model (buyers + sellers), no agent concept (coordinate with realdeal-ios) → backend was already clean (UserRole is buyer/seller only, no license fields); the removal was iOS-only, done in realdeal-ios
-- [ ][P0] Hidden per-account trustworthiness score: flag a buyer whose accepted bid goes unpaid, and block flagged accounts from submitting any further bids (score is never shown to users)
+- [x][P0] Hidden per-account trustworthiness score, bidirectional: flag a buyer whose accepted bid goes unpaid (seller-reported, objectively verified, auto-confirmed → blocked from bidding); buyers can report seller violations (deed non-delivery, inauthentic documents) which land pending_review and only enforce (no listing/accepting) once confirmed. Score/events never shown to users
+- [x][P0] Trust appeal process: a blocked account can file one appeal per enforcing event (POST /users/me/trust-appeal, statement only, no event details disclosed); overturned → event dismissed and the block lifts automatically (enforcement is derived); upheld → closed. Builds on the trust_events core
+- [ ][P1] Admin adjudication surface for pending_review trust events AND pending appeals (confirm/dismiss/uphold/overturn) — manual DB ops until then
+- [ ][P1] Deed handover service: seller document upload + authenticity verification as part of the post-acceptance transaction flow; anchors objective deed-delivery deadlines for trust enforcement (depends on contract wizard/escrow)
 - [x][P0] Implement a way for a seller to recieve multiple offers from multiple people and for them to decide on the offer they want
 - [ ][P0] Design a way to verify the buyer is able to buy the property, also do we need to conect with lenders?
 - [ ][P0] Come up with ways we can keep the users on the platform (act as escrow, verification, etc.)

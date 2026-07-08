@@ -1,5 +1,23 @@
 # Context
 
+## Trust appeal process 08-07-2026
+- `POST /api/v1/users/me/trust-appeal` (auth): a blocked account files an appeal with just a statement (≤2000 chars); eligibility = ≥1 confirmed trust event; one appeal per event (`trust_appeals.trust_event_id` unique) and one pending appeal per user (409 `APPEAL_PENDING`)
+- Minimal disclosure: success returns exactly `{data:{status:"pending"}}`; "never blocked", "all events already appealed", and the unique-violation race all funnel through one helper → byte-identical 409 `NO_APPEAL_AVAILABLE`, so the endpoint can't be used to fingerprint an account's trust state
+- `TrustAppeal` model all `json:"-"`, no GET/adjudication endpoints; resolution is manual ops — exact uphold/overturn SQL documented on the model (overturn = appeal overturned + linked event dismissed in one tx; the block lifts automatically because enforcement derives from confirmed events)
+- Coverage gate discovered mid-commit: the pre-commit hook enforces `make test-cover` ≥90% against the working tree — now documented in CLAUDE.md Commands; evaluators must check it, not just `make test`. 19 purposeful tests added (FileAppeal branches, trust-core error paths, SubmitOffer trust-check DB error) → 91.0%
+- Ops note: two session-limit interruptions left a staged-but-uncommitted core + broken partial appeal in the tree; recovered via stash --keep-index / conflict resolution from the stash tree — the trust core and appeal ship as one commit since they share files
+
+## Hidden bidirectional trust system: events, reports, enforcement 07-07-2026
+- Design: append-only `trust_events` table (`internal/models/trust.go`) — judgment is DERIVED from events, never stored as a score column; every field `json:"-"`, no GET endpoints, no Preloads — structurally invisible to users (evaluator leak-sweep verified, tests assert no "trust"/"flag" substrings in any response)
+- Event types: `offer_default` (buyer), `deed_default`/`document_fraud` (seller); status `pending_review`/`confirmed`/`dismissed` — the adjudication gate: objective events auto-confirm, accusations wait
+- `POST .../offers/:offerId/report-nonpayment` (seller): server verifies accepted + payment deadline strictly past → single transaction: offer → `defaulted`, confirmed event insert, property reverts pending → active (only from pending); duplicate → 409 via composite unique `(offer_id, event_type)`
+- `POST .../offers/:offerId/report-seller` (buyer on the offer, accepted only): validated violation enum + notes → `pending_review` event, 204 no body — does NOT enforce until manually confirmed (no adjudication endpoints by design; manual DB ops until the admin surface P1)
+- Enforcement (confirmed events only, role-isolated): buyer w/ offer_default blocked from SubmitOffer; seller w/ deed_default|document_fraud blocked from CreateProperty + AcceptOffer — neutral 403s that never mention the mechanism. UpdateProperty/viewings/withdraw deliberately ungated
+- `PaymentDeadline` stamped on the offer inside the existing AcceptOffer transaction (`PAYMENT_DEADLINE_HOURS` config, default 72); offer wire contract gains `payment_deadline` + `defaulted` status (legitimate transaction-party data)
+- When Stripe lands, its webhook becomes a second writer of the same events — model/enforcement/contract unchanged
+- 17 new tests; suite 189/189 handler tests green; evaluator APPROVE on a 10-point trust-specific checklist
+- Non-blocking note: dismissed reports can't be re-filed for the same offer/type (unique index ignores status) — revisit with the admin surface
+
 ## Viewing scheduling API: slots + seller-approved requests 05-07-2026
 - Product decisions: sellers post one-off dated time slots (no recurrence — a slot generator can add it later without wire changes); seller approves each request; one buyer per slot (accept auto-declines competing pending requests, same transaction pattern as AcceptOffer)
 - `internal/models/viewing.go`: `ViewingSlot` (property child, start/end UTC) and `ViewingRequest` (slot + denormalized property FK, buyer, optional message, status pending/accepted/declined/cancelled)
