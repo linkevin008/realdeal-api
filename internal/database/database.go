@@ -47,6 +47,16 @@ func Connect(cfg *config.Config) (*gorm.DB, error) {
 		return nil, fmt.Errorf("auto-migration failed: %w", err)
 	}
 
+	// Enforce one accepted viewing request per slot at the database level.
+	// The handler already checks-then-writes, but that has a read-then-write
+	// race under concurrent accepts on the same (last) slot; this partial
+	// unique index is the hard backstop. Partial indexes can't be expressed
+	// via GORM struct tags, so it's created with a raw statement after
+	// AutoMigrate. IF NOT EXISTS keeps this idempotent across restarts.
+	if err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_viewing_requests_one_accepted_per_slot ON viewing_requests (slot_id) WHERE status = 'accepted'`).Error; err != nil {
+		return nil, fmt.Errorf("failed to create viewing_requests accepted-slot index: %w", err)
+	}
+
 	log.Println("Database connection established and migrations applied")
 	return db, nil
 }

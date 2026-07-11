@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql/driver"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -430,6 +431,68 @@ func TestAcceptRequest_NotPending(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusConflict, w.Code)
+}
+
+func TestAcceptRequest_ConcurrentAcceptRace(t *testing.T) {
+	t.Parallel()
+	gormDB, mock := newTestDB(t)
+	h := handlers.NewViewingHandler(gormDB)
+	r := setupViewingRouter(h, "seller-1")
+
+	// Both requests pass the friendly pre-check (still "pending" as read),
+	// but a competing accept commits first; the partial unique index on
+	// viewing_requests(slot_id) WHERE status='accepted' rejects the second
+	// accept's UPDATE, which must map to the same 409 the pre-check gives.
+	mock.ExpectQuery(`SELECT .* FROM "properties"`).
+		WillReturnRows(sqlmock.NewRows(propertyColumns()).AddRow(propertyRow("prop-1", "seller-1")...))
+	mock.ExpectQuery(`SELECT .* FROM "viewing_requests"`).
+		WillReturnRows(sqlmock.NewRows(viewingRequestColumns()).AddRow(viewingRequestRow("req-2", "slot-1", "prop-1", "buyer-2", "pending")...))
+	mock.ExpectBegin()
+	mock.ExpectExec(`UPDATE "viewing_requests" SET "status"=\$1,"updated_at"=\$2 WHERE "id" = \$3`).
+		WillReturnError(errors.New(`ERROR: duplicate key value violates unique constraint "idx_viewing_requests_one_accepted_per_slot"`))
+	mock.ExpectRollback()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPut, "/properties/prop-1/viewing-requests/req-2/accept", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusConflict, w.Code)
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "SLOT_BOOKED", resp["code"])
+	assert.Equal(t, "viewing slot is already booked", resp["error"])
+}
+
+func TestAcceptRequest_AfterCancelledAcceptFreesSlot(t *testing.T) {
+	t.Parallel()
+	gormDB, mock := newTestDB(t)
+	h := handlers.NewViewingHandler(gormDB)
+	r := setupViewingRouter(h, "seller-1")
+
+	// A prior acceptance on this slot was cancelled, so its row no longer has
+	// status='accepted' and falls outside the partial index — a second,
+	// distinct pending request on the same slot must still be acceptable.
+	mock.ExpectQuery(`SELECT .* FROM "properties"`).
+		WillReturnRows(sqlmock.NewRows(propertyColumns()).AddRow(propertyRow("prop-1", "seller-1")...))
+	mock.ExpectQuery(`SELECT .* FROM "viewing_requests"`).
+		WillReturnRows(sqlmock.NewRows(viewingRequestColumns()).AddRow(viewingRequestRow("req-2", "slot-1", "prop-1", "buyer-2", "pending")...))
+	mock.ExpectBegin()
+	mock.ExpectExec(`UPDATE "viewing_requests" SET "status"=\$1,"updated_at"=\$2 WHERE "id" = \$3`).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(`UPDATE "viewing_requests" SET "status"=\$1,"updated_at"=\$2 WHERE slot_id = \$3 AND id != \$4 AND status = \$5`).
+		WillReturnResult(sqlmock.NewResult(1, 0))
+	mock.ExpectCommit()
+	mock.ExpectQuery(`SELECT .* FROM "viewing_requests"`).
+		WillReturnRows(sqlmock.NewRows(viewingRequestColumns()).AddRow(viewingRequestRow("req-2", "slot-1", "prop-1", "buyer-2", "accepted")...))
+	mock.ExpectQuery(`SELECT .* FROM "users"`).WillReturnRows(buyerRow())
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPut, "/properties/prop-1/viewing-requests/req-2/accept", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "accepted", resp["data"].(map[string]interface{})["status"])
 }
 
 func TestAcceptRequest_NonSellerForbidden(t *testing.T) {

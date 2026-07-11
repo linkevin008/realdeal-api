@@ -327,6 +327,15 @@ func (h *ViewingHandler) AcceptRequest(c *gin.Context) {
 	})
 
 	if err != nil {
+		// The pre-check above handles the common case, but two concurrent
+		// accepts on the same slot can both pass it before either commits.
+		// The partial unique index on viewing_requests(slot_id) WHERE
+		// status='accepted' is the hard backstop for that race; map its
+		// violation to the same 409 the pre-check would have produced.
+		if isUniqueViolation(err) {
+			c.JSON(http.StatusConflict, gin.H{"error": "viewing slot is already booked", "code": "SLOT_BOOKED"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to accept viewing request", "code": "INTERNAL_ERROR"})
 		return
 	}
