@@ -1,5 +1,15 @@
 # Context
 
+## Contract/signing state machine 10-07-2026
+- Product decisions (user): contract auto-created inside AcceptOffer's transaction (draft, `ExecutionDeadline` = now + `CONTRACT_EXECUTION_DEADLINE_DAYS`, default 14); expiry returns the listing to search with NO trust penalty yet (fault attribution needed first — P1 follow-up + hook comment in the model); terms flow = either party proposes, the other agrees
+- `internal/models/contract.go`: one contract per offer (unique index), denormalized buyer/seller ids (immutable, set from the stored offer/caller), states draft → terms_agreed → buyer_signed|seller_signed → executed, plus cancelled/expired
+- Terms semantics: PUT terms (move-in/transfer dates + free-text conditions ≤5000) auto-agrees the proposer and voids the other party's agreement AND all signatures — signing can never bind terms a party hasn't agreed to; sign only from terms_agreed onward; both signatures → executed (property STAYS pending; escrow flips to sold later)
+- Cancel (either party, pre-executed) and lazy expiry (checked on every endpoint access, no background jobs) both flip contract status and revert property pending → active in one transaction, revert guarded on current pending status
+- Endpoints: GET/PUT terms/POST agree-terms/POST sign/POST cancel under `/properties/:id/offers/:offerId/contract` + `GET /users/me/contracts`; parties-only 403s derived from the stored contract row; repo {error, code} conventions
+- Implementation note: GORM auto-wraps `Updates(map)` in its own transaction when the model carries belongs-to associations — single-row updates are explicitly wrapped in `h.db.Transaction()` to keep sqlmock expectations deterministic (consistent with AcceptOffer's style)
+- 40 new tests (state transitions incl. re-proposal voiding signatures, both-role sign/cancel, expiry-on-read transaction, AcceptOffer INSERT ordering); evaluator APPROVE; coverage gate 91.8%
+- Follow-ups tracked in backlog: conditions template library (P0), contract-expiry trust penalty (P1); iOS contract wizard is the client (realdeal-ios backlog P0)
+
 ## Viewing-slot concurrent-accept hardening 10-07-2026
 - Partial unique index `idx_viewing_requests_one_accepted_per_slot` on viewing_requests (slot_id) WHERE status='accepted' — created idempotently in database.Connect after AutoMigrate (partial indexes aren't expressible via GORM tags); server refuses to start if creation fails
 - AcceptRequest maps a unique-constraint violation inside the transaction to the same 409 SLOT_BOOKED body as the pre-check (reuses isUniqueViolation from trust.go); other errors still 500; rollback verified
