@@ -1,5 +1,11 @@
 # Context
 
+## Viewing-slot concurrent-accept hardening 10-07-2026
+- Partial unique index `idx_viewing_requests_one_accepted_per_slot` on viewing_requests (slot_id) WHERE status='accepted' — created idempotently in database.Connect after AutoMigrate (partial indexes aren't expressible via GORM tags); server refuses to start if creation fails
+- AcceptRequest maps a unique-constraint violation inside the transaction to the same 409 SLOT_BOOKED body as the pre-check (reuses isUniqueViolation from trust.go); other errors still 500; rollback verified
+- Accepted-row UPDATE runs before competitor auto-decline so the index can't false-positive; cancelled acceptances don't block re-booking (index covers only accepted rows)
+- 2 new sqlmock tests; evaluator APPROVE; coverage gate 91.1%
+
 ## Trust appeal process 08-07-2026
 - `POST /api/v1/users/me/trust-appeal` (auth): a blocked account files an appeal with just a statement (≤2000 chars); eligibility = ≥1 confirmed trust event; one appeal per event (`trust_appeals.trust_event_id` unique) and one pending appeal per user (409 `APPEAL_PENDING`)
 - Minimal disclosure: success returns exactly `{data:{status:"pending"}}`; "never blocked", "all events already appealed", and the unique-violation race all funnel through one helper → byte-identical 409 `NO_APPEAL_AVAILABLE`, so the endpoint can't be used to fingerprint an account's trust state

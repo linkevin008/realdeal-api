@@ -32,7 +32,7 @@ Priority: P0 = important/must have, P1 = need to have but not crucial, P2 = nice
 - [ ][P0] Are we only going to allow buyers who reside in the same country?
 - [ ][P0] Do we need another repo to handle different service logic? or use this one?
 - [x][P0] Make sure we are only displaying listings that are available and not sold or removed
-- [ ][P1] Harden viewing-slot booking against concurrent accepts: add a partial unique index on viewing_requests `(slot_id) WHERE status='accepted'` (and handle the constraint-violation error as a 409 in AcceptRequest) — closes the read-then-write race two simultaneous accepts/last-slot requests can hit
+- [x][P1] Harden viewing-slot booking against concurrent accepts: add a partial unique index on viewing_requests `(slot_id) WHERE status='accepted'` (and handle the constraint-violation error as a 409 in AcceptRequest) — closes the read-then-write race two simultaneous accepts/last-slot requests can hit
 - [ ][P1] Implement import logic from real estate listing services
 - [x][P0] Implement buying functionality where a buyer can submit an offer that is the price listed or more
 - [x][P0] If a seller has accepted a buyer's offer the listing should be in a PROCESSING state where it is not displayed during this time
