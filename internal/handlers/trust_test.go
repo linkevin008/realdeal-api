@@ -478,7 +478,7 @@ func TestReportSeller_CreateDBError(t *testing.T) {
 func TestSubmitOffer_BlockedByConfirmedTrustEvent(t *testing.T) {
 	t.Parallel()
 	gormDB, mock := newTestDB(t)
-	h := handlers.NewOfferHandler(gormDB, 72)
+	h := handlers.NewOfferHandler(gormDB, 72, 14)
 	r := setupOfferRouter(h, "buyer-1")
 
 	mock.ExpectQuery(`SELECT .* FROM "properties"`).
@@ -527,7 +527,7 @@ func TestCreateProperty_BlockedByConfirmedTrustEvent(t *testing.T) {
 func TestAcceptOffer_BlockedByConfirmedTrustEvent(t *testing.T) {
 	t.Parallel()
 	gormDB, mock := newTestDB(t)
-	h := handlers.NewOfferHandler(gormDB, 72)
+	h := handlers.NewOfferHandler(gormDB, 72, 14)
 	r := setupOfferRouter(h, "seller-1")
 
 	mock.ExpectQuery(`SELECT .* FROM "properties"`).
@@ -547,7 +547,7 @@ func TestAcceptOffer_BlockedByConfirmedTrustEvent(t *testing.T) {
 func TestSubmitOffer_PendingReviewDoesNotBlock(t *testing.T) {
 	t.Parallel()
 	gormDB, mock := newTestDB(t)
-	h := handlers.NewOfferHandler(gormDB, 72)
+	h := handlers.NewOfferHandler(gormDB, 72, 14)
 	r := setupOfferRouter(h, "buyer-1")
 
 	sellerID := "seller-1"
@@ -577,7 +577,7 @@ func TestSubmitOffer_PendingReviewDoesNotBlock(t *testing.T) {
 func TestAcceptOffer_StampsPaymentDeadline(t *testing.T) {
 	t.Parallel()
 	gormDB, mock := newTestDB(t)
-	h := handlers.NewOfferHandler(gormDB, 72)
+	h := handlers.NewOfferHandler(gormDB, 72, 14)
 	r := setupOfferRouter(h, "seller-1")
 
 	mock.ExpectQuery(`SELECT .* FROM "properties"`).
@@ -589,6 +589,8 @@ func TestAcceptOffer_StampsPaymentDeadline(t *testing.T) {
 	mock.ExpectExec(`UPDATE "offers"`).WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec(`UPDATE "offers"`).WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec(`UPDATE "properties"`).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectQuery(`INSERT INTO "contracts"`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("contract-1"))
 	mock.ExpectCommit()
 
 	deadline := time.Now().Add(72 * time.Hour)

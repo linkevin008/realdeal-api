@@ -34,6 +34,12 @@ type Config struct {
 	// PaymentDeadlineHours is how long a buyer has to pay after their offer
 	// is accepted before the seller may report non-payment.
 	PaymentDeadlineHours int
+
+	// Contract signing
+	// ContractExecutionDeadlineDays is how many days a contract has to reach
+	// executed (both parties signed) after it's created on offer acceptance,
+	// before it lazily expires (see internal/models/contract.go).
+	ContractExecutionDeadlineDays int
 }
 
 // Load reads configuration from environment variables.
@@ -54,6 +60,8 @@ func Load() (*Config, error) {
 		CloudFrontBaseURL: getEnv("CLOUDFRONT_BASE_URL", ""),
 
 		PaymentDeadlineHours: getEnvInt("PAYMENT_DEADLINE_HOURS", 72),
+
+		ContractExecutionDeadlineDays: getEnvInt("CONTRACT_EXECUTION_DEADLINE_DAYS", 14),
 	}
 
 	if cfg.DBPassword == "" {

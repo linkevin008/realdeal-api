@@ -10,12 +10,17 @@ import (
 )
 
 type OfferHandler struct {
-	db                   *gorm.DB
-	paymentDeadlineHours int
+	db                            *gorm.DB
+	paymentDeadlineHours          int
+	contractExecutionDeadlineDays int
 }
 
-func NewOfferHandler(db *gorm.DB, paymentDeadlineHours int) *OfferHandler {
-	return &OfferHandler{db: db, paymentDeadlineHours: paymentDeadlineHours}
+func NewOfferHandler(db *gorm.DB, paymentDeadlineHours int, contractExecutionDeadlineDays int) *OfferHandler {
+	return &OfferHandler{
+		db:                            db,
+		paymentDeadlineHours:          paymentDeadlineHours,
+		contractExecutionDeadlineDays: contractExecutionDeadlineDays,
+	}
 }
 
 type submitOfferRequest struct {
@@ -159,7 +164,21 @@ func (h *OfferHandler) AcceptOffer(c *gin.Context) {
 			Update("status", models.OfferStatusRejected).Error; err != nil {
 			return err
 		}
-		return tx.Model(&property).Update("status", models.PropertyStatusPending).Error
+		if err := tx.Model(&property).Update("status", models.PropertyStatusPending).Error; err != nil {
+			return err
+		}
+
+		// Automatically open the signing flow (MVP step 5) — one contract
+		// per offer, created in draft with the execution deadline stamped.
+		contract := models.Contract{
+			OfferID:           offer.ID,
+			PropertyID:        propertyID,
+			SellerID:          callerID,
+			BuyerID:           offer.BuyerID,
+			Status:            models.ContractStatusDraft,
+			ExecutionDeadline: time.Now().Add(time.Duration(h.contractExecutionDeadlineDays) * 24 * time.Hour),
+		}
+		return tx.Create(&contract).Error
 	})
 
 	if err != nil {

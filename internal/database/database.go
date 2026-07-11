@@ -43,6 +43,7 @@ func Connect(cfg *config.Config) (*gorm.DB, error) {
 		&models.ViewingRequest{},
 		&models.TrustEvent{},
 		&models.TrustAppeal{},
+		&models.Contract{},
 	); err != nil {
 		return nil, fmt.Errorf("auto-migration failed: %w", err)
 	}

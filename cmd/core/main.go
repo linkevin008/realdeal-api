@@ -59,9 +59,10 @@ func main() {
 	propertyHandler := handlers.NewPropertyHandler(db)
 	favoriteHandler := handlers.NewFavoriteHandler(db)
 	uploadHandler := handlers.NewUploadHandler(uploadSvc)
-	offerHandler := handlers.NewOfferHandler(db, cfg.PaymentDeadlineHours)
+	offerHandler := handlers.NewOfferHandler(db, cfg.PaymentDeadlineHours, cfg.ContractExecutionDeadlineDays)
 	viewingHandler := handlers.NewViewingHandler(db)
 	trustHandler := handlers.NewTrustHandler(db)
+	contractHandler := handlers.NewContractHandler(db)
 
 	// Auth middleware
 	authMW := middleware.AuthMiddleware(cfg)
@@ -131,6 +132,14 @@ func main() {
 		properties.GET("/:id/viewing-requests", authMW, viewingHandler.ListRequests)
 		properties.PUT("/:id/viewing-requests/:requestId/accept", authMW, viewingHandler.AcceptRequest)
 		properties.PUT("/:id/viewing-requests/:requestId/decline", authMW, viewingHandler.DeclineRequest)
+
+		// Contract routes (nested under property/offer) — the contract is
+		// created automatically by AcceptOffer; there is no create endpoint.
+		properties.GET("/:id/offers/:offerId/contract", authMW, contractHandler.GetContract)
+		properties.PUT("/:id/offers/:offerId/contract/terms", authMW, contractHandler.ProposeTerms)
+		properties.POST("/:id/offers/:offerId/contract/agree-terms", authMW, contractHandler.AgreeTerms)
+		properties.POST("/:id/offers/:offerId/contract/sign", authMW, contractHandler.Sign)
+		properties.POST("/:id/offers/:offerId/contract/cancel", authMW, contractHandler.Cancel)
 	}
 
 	// Buyer's own offers
@@ -138,6 +147,9 @@ func main() {
 
 	// Buyer's own viewing requests
 	users.GET("/me/viewing-requests", authMW, viewingHandler.ListMyRequests)
+
+	// Caller's contracts (both buyer and seller side)
+	users.GET("/me/contracts", authMW, contractHandler.ListMyContracts)
 
 	// Cancel a viewing request (buyer-owner-only)
 	v1.DELETE("/viewing-requests/:requestId", authMW, viewingHandler.CancelRequest)
