@@ -408,6 +408,32 @@ func (h *PropertyHandler) UpdateProperty(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": property, "message": "property updated successfully"})
 }
 
+// GET /api/v1/users/me/listings
+//
+// Returns the caller's own properties across active, pending, and sold
+// statuses (deleted excluded) — unlike ListProperties (default status=active,
+// used by the public search feed), a seller needs visibility into a listing
+// that just went pending (offer accepted, contract path opening) or sold.
+func (h *PropertyHandler) ListMyListings(c *gin.Context) {
+	callerID := c.MustGet("userID").(string)
+
+	var properties []models.Property
+	if err := h.db.Preload("Images").Preload("Seller").
+		Where("seller_id = ?", callerID).
+		Where("status IN ?", []models.PropertyStatus{
+			models.PropertyStatusActive,
+			models.PropertyStatusPending,
+			models.PropertyStatusSold,
+		}).
+		Order("created_at DESC").
+		Find(&properties).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch listings", "code": "INTERNAL_ERROR"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": properties})
+}
+
 // DELETE /api/v1/properties/:id
 func (h *PropertyHandler) DeleteProperty(c *gin.Context) {
 	id := c.Param("id")

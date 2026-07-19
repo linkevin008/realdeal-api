@@ -41,6 +41,12 @@ func setupPropertyRouter(h *handlers.PropertyHandler, callerID string) *gin.Engi
 		}
 		h.DeleteProperty(c)
 	})
+	r.GET("/users/me/listings", func(c *gin.Context) {
+		if callerID != "" {
+			c.Set("userID", callerID)
+		}
+		h.ListMyListings(c)
+	})
 	return r
 }
 
@@ -50,6 +56,16 @@ func propertyColumns() []string {
 		"price", "type", "description", "bedrooms", "bathrooms",
 		"square_feet", "lot_size", "year_built", "latitude", "longitude",
 		"source", "seller_id", "status", "created_at", "updated_at",
+	}
+}
+
+func propertyRowWithStatus(id, sellerID, status string) []driver.Value {
+	now := time.Now()
+	return []driver.Value{
+		id, "123 Main St", "Springfield", "IL", "62701", "US",
+		250000.0, "house", "Nice house", nil, nil,
+		nil, nil, nil, 39.78, -89.65,
+		"user_generated", sellerID, status, now, now,
 	}
 }
 
@@ -877,4 +893,109 @@ func TestDeleteProperty_DBError(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+// ListMyListings powers the iOS "My Listings" screen — unlike the public
+// ListProperties feed (default status=active), the caller must see their own
+// listing across active/pending/sold (a listing goes pending the moment an
+// offer is accepted, exactly when the seller needs the contract path).
+
+func TestListMyListings_Success(t *testing.T) {
+	t.Parallel()
+	gormDB, mock := newTestDB(t)
+	h := handlers.NewPropertyHandler(gormDB)
+	sellerID := "seller-1"
+	r := setupPropertyRouter(h, sellerID)
+
+	mock.ExpectQuery(`SELECT .* FROM "properties" WHERE seller_id = \$1 AND status IN \(\$2,\$3,\$4\)`).
+		WithArgs(sellerID, "active", "pending", "sold").
+		WillReturnRows(sqlmock.NewRows(propertyColumns()).
+			AddRow(propertyRowWithStatus("prop-1", sellerID, "pending")...).
+			AddRow(propertyRowWithStatus("prop-2", sellerID, "sold")...))
+
+	mock.ExpectQuery(`SELECT .* FROM "property_images"`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "property_id", "url", "order", "created_at"}))
+	mock.ExpectQuery(`SELECT .* FROM "users"`).
+		WillReturnRows(sellerRows())
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/users/me/listings", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	data := resp["data"].([]interface{})
+	assert.Len(t, data, 2)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestListMyListings_Empty(t *testing.T) {
+	t.Parallel()
+	gormDB, mock := newTestDB(t)
+	h := handlers.NewPropertyHandler(gormDB)
+	r := setupPropertyRouter(h, "seller-1")
+
+	mock.ExpectQuery(`SELECT .* FROM "properties"`).
+		WithArgs("seller-1", "active", "pending", "sold").
+		WillReturnRows(sqlmock.NewRows(propertyColumns()))
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/users/me/listings", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Empty(t, resp["data"])
+}
+
+func TestListMyListings_DBError(t *testing.T) {
+	t.Parallel()
+	gormDB, mock := newTestDB(t)
+	h := handlers.NewPropertyHandler(gormDB)
+	r := setupPropertyRouter(h, "seller-1")
+
+	mock.ExpectQuery(`SELECT .* FROM "properties"`).
+		WithArgs("seller-1", "active", "pending", "sold").
+		WillReturnError(fmt.Errorf("db error"))
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/users/me/listings", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestListMyListings_ExcludesDeletedAndOtherSellers(t *testing.T) {
+	t.Parallel()
+	gormDB, mock := newTestDB(t)
+	h := handlers.NewPropertyHandler(gormDB)
+	r := setupPropertyRouter(h, "seller-1")
+
+	// The WithArgs match on seller_id + the active/pending/sold status list
+	// is itself the assertion: a deleted listing or another seller's listing
+	// would never satisfy this query, so returning only the caller's rows
+	// (regardless of which of the three statuses they're in) proves the
+	// filter is doing its job.
+	mock.ExpectQuery(`SELECT .* FROM "properties"`).
+		WithArgs("seller-1", "active", "pending", "sold").
+		WillReturnRows(sqlmock.NewRows(propertyColumns()).
+			AddRow(propertyRowWithStatus("prop-1", "seller-1", "active")...))
+
+	mock.ExpectQuery(`SELECT .* FROM "property_images"`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "property_id", "url", "order", "created_at"}))
+	mock.ExpectQuery(`SELECT .* FROM "users"`).
+		WillReturnRows(sellerRows())
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/users/me/listings", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	data := resp["data"].([]interface{})
+	assert.Len(t, data, 1)
+	assert.NoError(t, mock.ExpectationsWereMet())
 }

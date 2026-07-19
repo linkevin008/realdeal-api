@@ -142,6 +142,9 @@ func main() {
 		properties.POST("/:id/offers/:offerId/contract/cancel", authMW, contractHandler.Cancel)
 	}
 
+	// Seller's own listings (all non-deleted statuses — active/pending/sold)
+	users.GET("/me/listings", authMW, propertyHandler.ListMyListings)
+
 	// Buyer's own offers
 	users.GET("/me/offers", authMW, offerHandler.ListMyOffers)
 
