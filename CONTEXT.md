@@ -1,5 +1,11 @@
 # Context
 
+## GET /users/me/listings — seller's own listings across statuses 19-07-2026
+- New authed endpoint returns the caller's own active/pending/sold listings (deleted excluded), Images+Seller preloaded, created_at DESC, `{"data": [...]}` — mirrors ListMyOffers/ListMyContracts exactly (no pagination)
+- Fixes an iOS bug found in the live contract walkthrough: My Listings was fed by the active-only lookup search, so a seller's listing vanished the moment an offer was accepted (pending) — exactly when its offers/contract path matters; sold listings were invisible to their owner too
+- Seller identity comes only from the auth middleware's userID (never a query param), so there's no path to another seller's non-active listings; 4 tests pin the WHERE clause (seller_id + the three statuses) rather than just status codes
+- Evaluator APPROVE; coverage gate 91.9%
+
 ## Contract/signing state machine 10-07-2026
 - Product decisions (user): contract auto-created inside AcceptOffer's transaction (draft, `ExecutionDeadline` = now + `CONTRACT_EXECUTION_DEADLINE_DAYS`, default 14); expiry returns the listing to search with NO trust penalty yet (fault attribution needed first — P1 follow-up + hook comment in the model); terms flow = either party proposes, the other agrees
 - `internal/models/contract.go`: one contract per offer (unique index), denormalized buyer/seller ids (immutable, set from the stored offer/caller), states draft → terms_agreed → buyer_signed|seller_signed → executed, plus cancelled/expired
