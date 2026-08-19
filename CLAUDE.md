@@ -40,6 +40,7 @@ Priority: P0 = important/must have, P1 = need to have but not crucial, P2 = nice
 - [x][P0] Implement document signing → real signing state machine (terms → both agree → both sign → executed); documents themselves stubbed per MVP
 - [x][P0] Implement when confirming the deal, move in date, transfer date, and any other dates needed. Both parties will need to agree to the conditions → propose/agree terms flow on the contract; any change after a signature voids signatures
 - [ ][P0] Define the template for conditions and sale (conditions are free text ≤5000 chars on the contract for MVP; this item = structured template library)
+- [ ][P1] `make push` prints a ready-to-paste `deploy-compute` command that omits `LOOKUP_DESIRED_COUNT=0`. On a FIRST deploy that command deadlocks: lookup connects as `lookup_ro`, which does not exist yet, so its tasks crash-loop, LookupService never reaches steady state, and the compute stack cannot reach CREATE_COMPLETE. Either add `LOOKUP_DESIRED_COUNT=0` to the printed line or point at the realdeal-infra README runbook instead of printing a copy-paste command (found during the 18-08-2026 deployment rehearsal; realdeal-infra 7dda093)
 - [ ][P1] Contract-expiry penalty: create a trust event against the party at fault when a contract expires unsigned — needs fault attribution (whose signature/agreement was missing); hook noted in internal/models/contract.go
 
 - [x][P0] Restructure into a multi-service monorepo with a local AWS-modeled environment (nginx gateway ≙ ALB, container per service ≙ ECS, LocalStack ≙ S3/SecretsManager)
