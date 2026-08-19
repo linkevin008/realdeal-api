@@ -29,12 +29,6 @@ var allowedContentTypes = map[string]bool{
 	"image/png":  true,
 }
 
-var allowedUploadTypesHandler = map[string]bool{
-	"property":        true,
-	"profile":         true,
-	"id_verification": true,
-}
-
 // Presign handles POST /api/v1/upload/presign.
 // Requires auth — userID is read from the gin context key "userID" (set by auth middleware).
 func (h *UploadHandler) Presign(c *gin.Context) {
@@ -65,7 +59,7 @@ func (h *UploadHandler) Presign(c *gin.Context) {
 		return
 	}
 
-	if !allowedUploadTypesHandler[req.UploadType] {
+	if !services.IsAllowedUploadType(req.UploadType) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": "upload_type must be property, profile, or id_verification",
 			"code":  "VALIDATION_ERROR",

@@ -14,11 +14,19 @@ import (
 // presignTTL is how long a generated upload URL stays valid.
 const presignTTL = 15 * time.Minute
 
-// allowedUploadTypes lists the valid values for UploadType.
+// allowedUploadTypes lists the valid values for UploadType. This is the single
+// source of truth — the handler validates through IsAllowedUploadType rather
+// than keeping its own copy.
 var allowedUploadTypes = map[string]bool{
 	"property":        true,
 	"profile":         true,
 	"id_verification": true,
+}
+
+// IsAllowedUploadType reports whether t is a valid upload_type. Exported so the
+// handler can reject early with a 400 without duplicating the set.
+func IsAllowedUploadType(t string) bool {
+	return allowedUploadTypes[t]
 }
 
 // UploadServiceInterface allows the handler to use a mock in tests.

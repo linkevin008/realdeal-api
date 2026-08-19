@@ -571,7 +571,11 @@ func TestAppleSignIn_CacheHit(t *testing.T) {
 	countingServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fetchCount++
 		// Proxy to the real test JWKS server
-		resp, _ := http.Get(srv.URL)
+		resp, err := http.Get(srv.URL)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		defer resp.Body.Close()
 		w.Header().Set("Content-Type", "application/json")
 		json.NewDecoder(resp.Body).Decode(new(interface{}))
