@@ -36,6 +36,7 @@ Priority: P0 = important/must have, P1 = need to have but not crucial, P2 = nice
 - [ ][P1] Implement import logic from real estate listing services
 - [x][P0] Implement buying functionality where a buyer can submit an offer that is the price listed or more
 - [x][P0] If a seller has accepted a buyer's offer the listing should be in a PROCESSING state where it is not displayed during this time
+- [x][P1] Put S3 behind our own `MediaStorage` interface so a storage-provider swap is a new implementation rather than a rewrite (same two-way-door pattern as the payment provider) → `services.MediaStorage` with `PresignPut` only; `aws-sdk-go-v2` now imported in exactly one file. Also made `UploadService.Presign` unit-testable for the first time
 - [ ][P0] Our service has to integrate or devise some kind of payment service to facilitate the transaction → Decision: start with Stripe-managed escrow/payments (Stripe handles KYC), but put it behind our own payment-provider interface so migrating to another provider later is a two-way door
 - [x][P0] Implement document signing → real signing state machine (terms → both agree → both sign → executed); documents themselves stubbed per MVP
 - [x][P0] Implement when confirming the deal, move in date, transfer date, and any other dates needed. Both parties will need to agree to the conditions → propose/agree terms flow on the contract; any change after a signature voids signatures

@@ -10,7 +10,9 @@
 
 **Notable subsystems**: hidden bidirectional trust system (append-only events, derived enforcement, appeals — structurally invisible to users); contract state machine (auto-created on offer accept, 14-day deadline, terms→agree→sign→executed, lazy expiry).
 
-**Next up**: Stripe escrow behind our own provider interface (decided, not started) · admin adjudication surface for pending trust events/appeals (P1) · listing-ownership verification (P0, needs a product decision on mechanism) · first AWS deployment rehearsal (blocked on `aws sso login`).
+**Provider seams**: media storage is behind `services.MediaStorage` (`PresignPut` only) with an S3 implementation in `internal/services/storage_s3.go` — the sole file importing `aws-sdk-go-v2`. Payments will follow the same pattern with Stripe. Both exist so a provider swap is a new implementation, not a rewrite.
+
+**Next up**: Stripe escrow behind our own provider interface (decided, not started) · admin adjudication surface for pending trust events/appeals (P1) · listing-ownership verification (P0, needs a product decision on mechanism). The first AWS deployment rehearsal was completed and smoke-verified on 18-08-2026 — see realdeal-infra; the AWS account is currently suspended, so anything needing it is blocked.
 
 # Conventions
 
@@ -30,6 +32,16 @@
 # Context
 
 *Newest first. Older entries live in `CONTEXT-ARCHIVE.md`.*
+
+## S3 behind a MediaStorage interface 18-08-2026
+- `internal/services/storage.go` defines `MediaStorage`, one method: `PresignPut(ctx, key, contentType, ttl)`. It leaks nothing provider-specific — no bucket, no SDK types, no `s3.Options` — because the bucket and credential chain are captured in the implementation's constructor
+- `internal/services/storage_s3.go` is the S3 implementation and is now the ONLY file in the repo importing `aws-sdk-go-v2`. Porting media storage to another provider is one new file
+- `UploadService` keeps every business rule: upload-type validation, the `{upload_type}/{user_id}/{uuid}.{ext}` key layout, extension defaulting/lowercasing, public-URL construction, and the 15-minute TTL (`presignTTL`). The TTL is a parameter rather than baked into the implementation precisely so that policy stays on the business side of the seam
+- Behaviour unchanged, verified line-by-line against the previous version: the LocalStack path-style switch (`o.UsePathStyle` when `awsCfg.BaseEndpoint != nil`), the expiry, the S3_BUCKET/CLOUDFRONT_BASE_URL validation order, and every error string moved across verbatim. `cmd/core/main.go` needed no change — `NewUploadService` keeps its signature and the nil-service→503 path is intact
+- Motivation: the same two-way-door reasoning already applied to payments, prompted by evaluating GCP. A GCS implementation satisfies this interface cleanly (`storage.SignedURL` with `Method: "PUT"` returns a plain URL — different mechanism, same shape)
+- Known limit of the seam: it returns only a URL, so a provider needing extra client request headers (Azure Blob SAS wants `x-ms-blob-type`) could not express that. Irrelevant for GCS, and the wire contract already returns only `upload_url`, so it would be a wire change regardless
+- Testability was the second win: `UploadService.Presign` could not be unit tested at all before, because constructing it required real AWS config. 9 tests now cover key layout, TTL/content-type passthrough, the allowed-type set, rejection-before-signing, extension handling, CDN-base trimming, key uniqueness, error propagation and the constructor guards. `internal/services` 0%→53.1% on Presign; the handlers+middleware gate unaffected at 91.9%
+- Evaluator APPROVE
 
 ## GET /users/me/listings — seller's own listings across statuses 19-07-2026
 - New authed endpoint returns the caller's own active/pending/sold listings (deleted excluded), Images+Seller preloaded, created_at DESC, `{"data": [...]}` — mirrors ListMyOffers/ListMyContracts exactly (no pagination)
