@@ -31,6 +31,14 @@
 
 # Context
 
+## Test-integrity fixes: vet, duplicated upload types, media read path 22-08-2026
+- `go vet` was permanently red on `internal/handlers/social_auth_test.go:575` — `http.Get`'s error was discarded and `resp` dereferenced anyway (nil panic if the request failed). Fixed; vet is clean module-wide again, so it can catch real regressions instead of being ignored
+- The three valid `upload_type` values were listed twice, in the handler and the service, with two different error messages. `services.IsAllowedUploadType` is now the single source of truth and the handler validates through it, mirroring the `SupportedCountries` convention. Handler keeps its early 400 with the same text and status
+- **`TestUploadPresignFlow` only tested half the media path.** It presigned, PUT the bytes, then merely asserted the public URL string contained `"property/"` — it never fetched the object back. A broken CloudFront distribution, OAI or bucket policy would have left it green. It now GETs the public URL and compares bytes (3 attempts, short backoff, so a cold CDN fetch is not flaky)
+- Verified by negative control rather than assuming: corrupting the URL fails the test with a 404, and it passes again once restored. A new assertion that has never been seen to fail proves nothing
+- Local stack would not start beforehand: `database "realdeal_core" does not exist` plus `password authentication failed for user "lookup_ro"`. Stale postgres volume — the documented `docker compose down -v` fixed it. Worth noting the lookup failure is byte-identical to the AWS first-deploy deadlock, which is independent confirmation the bug was about ordering, not about anything in the application
+- Known gap, unchanged: the iOS app has still never talked to the deployed backend. Every "live verification" to date is the simulator against `make up`. Expect ATS to block it — the app uses cleartext HTTP and the ALB has no TLS listener
+
 *Newest first. Older entries live in `CONTEXT-ARCHIVE.md`.*
 
 ## S3 behind a MediaStorage interface 18-08-2026
